@@ -135,6 +135,30 @@ def merge_paths_to_polyline(paths, n_uniform_per_path=4000):
 
     return points, arc_norm
 
+# ---------------------------------------------------------------------------
+# 2.5. Ensure counterclockwise direction of sampled points
+# ---------------------------------------------------------------------------
+
+def ensure_ccw(points, svg_coords=True):
+    """
+    Return points in CCW order.
+
+    In SVG coordinates (y-down), CCW means the shoelace sum is negative.
+    In standard math coordinates (y-up), CCW means the shoelace sum is positive.
+    Pass svg_coords=True (default) to use the SVG convention.
+    """
+    x = points.real
+    y = points.imag
+    # Shoelace formula for signed area
+    signed_area = 0.5 * np.sum(x[:-1] * y[1:] - x[1:] * y[:-1])
+
+    # In SVG (y-down): CCW => signed_area < 0
+    # In math (y-up):  CCW => signed_area > 0
+    is_ccw = signed_area < 0 if svg_coords else signed_area > 0
+
+    if not is_ccw:
+        points = points[::-1]
+    return points
 
 # ---------------------------------------------------------------------------
 # 3. Curvature estimation
@@ -254,9 +278,8 @@ def save_csv(output_file, sampled_points):
     """
     with open(output_file, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["point_index", "x", "y"])
         for i, p in enumerate(sampled_points):
-            writer.writerow([i, f"{p.real:.6f}", f"{p.imag:.6f}"])
+            writer.writerow([f"{p.real:.2f}", f"{p.imag:.2f}"])
 
     print(f"Saved {len(sampled_points)} points -> {output_file}")
 
@@ -303,6 +326,40 @@ def show_preview(paths, attributes, sampled_points):
     plt.tight_layout()
     plt.show()
 
+def show_ccw_check_preview(paths, attributes, sampled_points):
+    """
+    Like show_preview but only overlays the first half of the sampled points,
+    making it easy to verify CCW order visually.
+    """
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.set_aspect("equal")
+    ax.set_title("CCW check: first half of sampled points (red) over original paths (grey)")
+    ax.invert_yaxis()
+
+    for path, attr in zip(paths, attributes):
+        t_vals = np.linspace(0, 1, 1000)
+        pts = np.array([path.point(t) for t in t_vals])
+        color = attr.get("stroke", "#888888")
+        if color in ("none", ""):
+            color = "#888888"
+        ax.plot(pts.real, pts.imag, color=color, linewidth=1, zorder=1)
+
+    half = len(sampled_points) // 2
+    first_half = sampled_points[:half]
+
+    ax.scatter(
+        first_half.real, first_half.imag,
+        s=12, color="#e8503a", zorder=2, linewidths=0,
+    )
+
+    path_patch  = mpatches.Patch(color="#888888", label="Original paths")
+    point_patch = mpatches.Patch(color="#e8503a", label=f"First half of points ({half})")
+    ax.legend(handles=[path_patch, point_patch], loc="best")
+
+    ax.set_xlabel("x (SVG units)")
+    ax.set_ylabel("y (SVG units)")
+    plt.tight_layout()
+    plt.show()
 
 # ---------------------------------------------------------------------------
 # 8. Main entry point
@@ -394,12 +451,19 @@ def main():
         smooth_sigma=args.smooth_sigma,
     )
 
+    sampled_points = ensure_ccw(sampled_points, svg_coords=True)
+
     # Save CSV
     save_csv(output, sampled_points)
 
     # Optional preview
+    # if not args.no_preview:
+    #     # preview whole graph
+    #     show_preview(ordered_paths, attributes, sampled_points)
+
     if not args.no_preview:
-        show_preview(ordered_paths, attributes, sampled_points)
+        # preview just half to check ccw dir
+        show_ccw_check_preview(ordered_paths, attributes, sampled_points)
 
 
 if __name__ == "__main__":
