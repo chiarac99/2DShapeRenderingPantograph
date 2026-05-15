@@ -316,6 +316,7 @@ def show_preview(paths, attributes, sampled_points):
         s=12, color="#e8503a", zorder=2, linewidths=0,
     )
 
+
     # Legend
     path_patch  = mpatches.Patch(color="#888888", label="Original paths")
     point_patch = mpatches.Patch(color="#e8503a", label=f"Sampled points ({len(sampled_points)})")
@@ -348,8 +349,12 @@ def show_ccw_check_preview(paths, attributes, sampled_points):
     first_half = sampled_points[:half]
 
     ax.scatter(
-        first_half.real, first_half.imag,
+        first_half.real[1:], first_half.imag[1:],
         s=12, color="#e8503a", zorder=2, linewidths=0,
+    )
+    ax.scatter(
+        first_half.real[0:1], first_half.imag[0:1],
+        s=40, color="#3a7be8", zorder=3, linewidths=0,
     )
 
     path_patch  = mpatches.Patch(color="#888888", label="Original paths")
@@ -457,14 +462,24 @@ def main():
     save_csv(output, sampled_points)
 
     # Optional preview
-    # if not args.no_preview:
-    #     # preview whole graph
-    #     show_preview(ordered_paths, attributes, sampled_points)
-
     if not args.no_preview:
-        # preview just half to check ccw dir
-        show_ccw_check_preview(ordered_paths, attributes, sampled_points)
+        # preview whole graph
+        show_preview(ordered_paths, attributes, sampled_points)
+
+    # if not args.no_preview:
+    #     # preview just half to check ccw dir
+    #     show_ccw_check_preview(ordered_paths, attributes, sampled_points)
 
 
 if __name__ == "__main__":
+    from svgpathtools import svg2paths2
+    import numpy as np
+
+    paths, _, _ = svg2paths2("outlineSvgs/hammer_outline.svg")
+    all_pts = np.concatenate([
+        np.array([p.point(t) for t in np.linspace(0, 1, 500)])
+        for p in paths
+    ])
+    print(f"x: {all_pts.real.min():.1f} – {all_pts.real.max():.1f}")
+    print(f"y: {all_pts.imag.min():.1f} – {all_pts.imag.max():.1f}")
     main()
