@@ -21,14 +21,23 @@ float svgW, svgH;
 float vbX, vbY;  // viewBox origin
 float uniformScale, offsetX, offsetY;
 
-String shape_file = "hammer";
+String shape_file = "bunny";
+
+ShapeRecord currentShape;
+int shape_id = 1; // 1, 2 and 3
 
 void setup() {
   size(800, 600);
   
-  baseSVG = loadShape(shape_file + "_outline.svg");
+  // connect to database
+  dbConnect();
   
-  String[] rawLines = loadStrings(shape_file + "_outline.svg");
+  // get shape info
+  currentShape = getCurrentShape(shape_id);
+  
+  baseSVG = loadShape(currentShape.svgFilename);
+  
+  String[] rawLines = loadStrings(currentShape.svgFilename);
   String raw = join(rawLines, " ");
   vbX  = getViewBoxDim(raw, 0);
   vbY  = getViewBoxDim(raw, 1); 
@@ -43,7 +52,7 @@ void setup() {
   offsetX = (width  - svgW * uniformScale) / 2.0;
   offsetY = (height - svgH * uniformScale) / 2.0;
   
-  points = loadCoordinates(shape_file + "_outline_sampled.csv",
+  points = loadCoordinates(currentShape.csvFilename,
                          vbX, vbY, uniformScale, offsetX, offsetY);
   println("Loaded " + points.length + " points");
 }
@@ -85,6 +94,12 @@ void draw() {
   }
 
   noLoop();
+}
+
+// run this on exit of the processing app, so we protect the database
+void exit() {
+  dbClose();
+  super.exit();
 }
 
 float getViewBoxDim(String svgText, int index) {
