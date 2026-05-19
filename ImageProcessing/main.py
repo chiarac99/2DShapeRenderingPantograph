@@ -161,6 +161,59 @@ def ensure_ccw(points, svg_coords=True):
     return points
 
 # ---------------------------------------------------------------------------
+# 2.6. Normalize to pantograph workspace + emit Arduino/Processing fragments
+#      (merged from preprocess_shapes.py)
+# ---------------------------------------------------------------------------
+
+TARGET_SIZE = 0.07   # m, slight margin from 8 cm
+
+def signed_area(points):
+    """Shoelace formula. Positive = CCW, negative = CW. Operates on list of (x, y)."""
+    a = 0.0
+    n = len(points)
+    for i in range(n):
+        j = (i + 1) % n
+        a += points[i][0] * points[j][1] - points[j][0] * points[i][1]
+    return 0.5 * a
+
+def normalize(points):
+    """Center at origin, flip y (SVG y-down -> math y-up), scale to TARGET_SIZE."""
+    pts = [(x, -y) for x, y in points]
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    cx = (min(xs) + max(xs)) / 2
+    cy = (min(ys) + max(ys)) / 2
+    w  = max(xs) - min(xs)
+    h  = max(ys) - min(ys)
+    scale = TARGET_SIZE / max(w, h)
+    pts = [((x - cx) * scale, (y - cy) * scale) for x, y in pts]
+    return pts
+
+def emit_arduino_c(name, points):
+    """C array for Arduino .ino - drop-in for the PROGMEM block in Hapkit_Pantograph_ForceFeedback.ino"""
+    upper = name.upper()
+    lines = [f'// ----- {name}, {len(points)} pts, CCW -----',
+             f'const int N_{upper} = {len(points)};',
+             f'const float shape_{name}[N_{upper}][2] PROGMEM = {{']
+    for i, (x, y) in enumerate(points):
+        sep = ',' if i < len(points) - 1 else ''
+        lines.append(f'    {{ {x:8.5f}f, {y:8.5f}f}}{sep}')
+    lines.append('};')
+    return '\n'.join(lines)
+
+def emit_processing_java(name, points):
+    """Java array literal for Processing .pde"""
+    lines = [f'// ----- {name}, {len(points)} pts -----',
+             f'int N_POINTS = {len(points)};',
+             f'float[][] shape = {{']
+    for i, (x, y) in enumerate(points):
+        sep = ',' if i < len(points) - 1 else ''
+        lines.append(f'  {{ {x:8.5f}f, {y:8.5f}f}}{sep}')
+    lines.append('};')
+    return '\n'.join(lines)
+
+
+# ---------------------------------------------------------------------------
 # 3. Curvature estimation
 # ---------------------------------------------------------------------------
 
@@ -274,12 +327,15 @@ def load_paths(svg_file):
 
 def save_csv(output_file, sampled_points):
     """
-    Write sampled coordinates to a CSV with columns: point_index, x, y.
+    Write sampled coordinates to a CSV (no header). Coordinates may be raw SVG
+    units (large numbers, 2 decimals) or normalised meters (~0.035, 5 decimals);
+    we auto-detect by magnitude so the same writer serves both pipelines.
     """
+    fmt = "%.2f" if any(abs(p.real) > 1.0 or abs(p.imag) > 1.0 for p in sampled_points) else "%.5f"
     with open(output_file, "w", newline="") as f:
         writer = csv.writer(f)
         for i, p in enumerate(sampled_points):
-            writer.writerow([f"{p.real:.2f}", f"{p.imag:.2f}"])
+            writer.writerow([fmt % p.real, fmt % p.imag])
 
     print(f"Saved {len(sampled_points)} points -> {output_file}")
 
@@ -458,8 +514,26 @@ def main():
 
     sampled_points = ensure_ccw(sampled_points, svg_coords=True)
 
-    # Save CSV
-    save_csv(output, sampled_points)
+    # Normalize to pantograph workspace: flip y, center, scale to ~7cm,
+    # re-verify CCW in math (y-up) convention. Same logic as preprocess_shapes.py.
+    raw_pts = [(p.real, p.imag) for p in sampled_points]
+    norm_pts = normalize(raw_pts)
+    if signed_area(norm_pts) < 0:
+        norm_pts = list(reversed(norm_pts))
+    normalized_points = np.array([x + 1j * y for x, y in norm_pts])
+
+    # Emit Arduino + Processing fragments alongside the CSV
+    stem = args.input_svg.stem
+    shape_name = stem.replace("_outline", "")  # bunny_outline -> bunny
+    out_ino = output.with_name(f"{stem}_arduino.h.txt")
+    out_pde = output.with_name(f"{stem}_processing.txt")
+    out_ino.write_text(emit_arduino_c(shape_name, norm_pts))
+    out_pde.write_text(emit_processing_java(shape_name, norm_pts))
+    print(f"Saved Arduino fragment -> {out_ino}")
+    print(f"Saved Processing fragment -> {out_pde}")
+
+    # Save CSV (normalized meters, 5 decimals - see save_csv auto-detect)
+    save_csv(output, normalized_points)
 
     # Optional preview
     if not args.no_preview:
