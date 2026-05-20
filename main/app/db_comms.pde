@@ -34,12 +34,12 @@ void dbClose() {
 }
 
 void insertGuess(int shapeId, String guessText) {
-  String sql = "INSERT INTO GuessesTable (time, shape_id, guess) VALUES (?, ?, ?)";
+  String sql = "INSERT INTO GuessesTable (time, shape_id, guess) VALUES (datetime('now'), ?, ?)";
   try {
     PreparedStatement ps = db.prepareStatement(sql);
-    ps.setString(1, str(millis()));
-    ps.setInt(2, shapeId);
-    ps.setString(3, guessText);
+    //ps.setString(1, str(millis()));
+    ps.setInt(1, shapeId);
+    ps.setString(2, guessText);
     ps.executeUpdate();
     ps.close();
   } catch (Exception e) {
@@ -47,28 +47,19 @@ void insertGuess(int shapeId, String guessText) {
   }
 }
 
-void loadRecentGuesses(int shapeId) {
-  String sql = "SELECT g.id, g.time, g.guess, s.shape_name " +
-               "FROM GuessesTable g " +
-               "JOIN ShapesTable s ON g.shape_id = s.id " +
-               "WHERE g.shape_id = ? " +
-               "ORDER BY g.id DESC " +
-               "LIMIT 10";
-  
+String[] loadRecentGuesses(int shapeId) {
+  String sql = "SELECT guess FROM GuessesTable WHERE shape_id = ? ORDER BY id DESC LIMIT 10";
+  ArrayList<String> result = new ArrayList<String>();
   try {
     PreparedStatement ps = db.prepareStatement(sql);
     ps.setInt(1, shapeId);
     ResultSet rs = ps.executeQuery();
-    
-    while (rs.next()) {
-      println(rs.getString("time") + " | shape: " + rs.getString("shape_name") + " | guess: " + rs.getString("guess"));
-    }
-    
-    rs.close();
-    ps.close();
+    while (rs.next()) result.add(rs.getString("guess"));
+    rs.close(); ps.close();
   } catch (Exception e) {
-    println("Query failed: " + e.getMessage());
+    println("fetchRecentGuessStrings failed: " + e.getMessage());
   }
+  return result.toArray(new String[0]);
 }
 
 ShapeRecord getCurrentShape(int shapeId) {
@@ -98,4 +89,25 @@ ShapeRecord getCurrentShape(int shapeId) {
   }
   
   return null;
+}
+
+String[][] getShapeList() {
+  String sql = "SELECT id, shape_name FROM ShapesTable";
+  ArrayList<String[]> rows = new ArrayList<String[]>();
+
+  try {
+    PreparedStatement ps = db.prepareStatement(sql);
+    ResultSet rs = ps.executeQuery();
+
+    while (rs.next()) {
+      rows.add(new String[] { str(rs.getInt("id")), rs.getString("shape_name") });
+    }
+
+    rs.close();
+    ps.close();
+  } catch (Exception e) {
+    println("getShapeList failed: " + e.getMessage());
+  }
+
+  return rows.toArray(new String[0][]);
 }

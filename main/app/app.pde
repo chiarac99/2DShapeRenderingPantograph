@@ -39,9 +39,11 @@ float LAMBDA_TEX   = 0.0020f;
 // Data is retrieved from saved csv files.
 
 ShapeRecord currentShape;
-int shape_id = 3; // 1, 2 and 3
+int shapeId= 1; // 1, 2 and 3
+int lastShapeId = -1;
 PShape baseSVG;
 float[][] points;
+String[] recentGuesses = new String[0];
 
 // Precomputed arc-length table (sized for max possible):
 float[] s_arc;
@@ -49,8 +51,8 @@ float perimeter;
 float lambda_actual;
 
 // --- Settings ---
-color dotColor = color(226, 75, 74);
-color lineColor = color(55, 138, 221);
+color dotColor = color(204, 171, 92);
+color lineColor = color(248, 142, 181);
 float dotRadius = 5;
 float lineWeight = 2;
 float dotOpacity = 230;
@@ -58,10 +60,15 @@ float lineOpacity = 180;
 float padding = 150;  // pixels of whitespace on each side
 
 // --- display options ---
-boolean showLines = true;
-boolean showDots = true;
-boolean showLabels = false;
+int screen = 0; // 0 = guess input, 1 = results
 
+
+// --- buttons + dropdowns ----
+Button nextShapeBtn;
+Dropdown shapeDropdown;
+String[][] shapeNameList;
+TextInput guessInput;
+Button submitBtn;
 
 void setup() {
   // set up screen
@@ -75,13 +82,76 @@ void setup() {
   dbConnect();
   
   // set shape
-  setShape(shape_id);
+  setShape(shapeId);
+  
+  // display buttons
+  nextShapeBtn = new Button(700, 700, 120, 35, "Next");
+  // display dropdown
+  setupShapeDropdown();
+  // guess input
+  guessInput = new TextInput(100, 200, 300, 40, "What do you think the shape is...");
+  submitBtn = new Button(500, 200, 120, 35, "Go");
   
 }
 
 void draw() {
   background(255);
+  if (screen == 0) drawGuessScreen();
+  else drawResultsScreen();
 
+  if (shapeId != lastShapeId) {
+    lastShapeId = shapeId;
+    setShape(shapeId);
+    recentGuesses = loadRecentGuesses(shapeId);
+    screen = 0; // when the shape changes, always go to guess screen
+  }
+
+}
+
+void mousePressed() {
+  if (screen == 1) {
+    nextShapeBtn.handleClick(mouseX, mouseY);
+    shapeDropdown.handleClick(mouseX, mouseY);
+  } else {
+    guessInput.handleClick(mouseX, mouseY);
+    submitBtn.handleClick(mouseX, mouseY);
+  }
+}
+
+void keyPressed() {
+  guessInput.handleKey();
+}
+
+// run this on exit of the processing app, so we protect the database
+void exit() {
+  dbClose();
+  super.exit();
+}
+
+// ---- DRAW FUNCTIONS ----
+
+void toggleScreen(){
+ if (screen == 0) screen = 1;
+ else screen = 0;
+}
+
+void drawGuessScreen(){
+  guessInput.draw();
+  submitBtn.draw();
+
+  if (submitBtn.isClicked()) {
+    String guess = guessInput.getValue();
+    if (guess.length() > 0) {
+      insertGuess(shapeId, guess);   // send guess to database
+      recentGuesses = loadRecentGuesses(shapeId); // load once here
+      guessInput.clear();
+      screen = 1;         // move to results
+    }
+    submitBtn.reset();
+  }
+}
+
+void drawResultsScreen(){
   // update user position // TODO: update with values from serial
   float xh = (mouseX - ORIGIN_X) / PIXELS_PER_METER;
   float yh = -(mouseY - ORIGIN_Y) / PIXELS_PER_METER;
@@ -92,15 +162,22 @@ void draw() {
   // draw shape
   drawLines();
   drawDots();
-
+  
+  // draw buttons
+  nextShapeBtn.draw();
+  shapeDropdown.draw();
+  
+  // draw recent guesses table
+  drawGuessSidebar();
+  
+  if (nextShapeBtn.isClicked()){
+    toggleShape();
+    toggleScreen();
+    nextShapeBtn.reset();
+  }
 }
 
-// run this on exit of the processing app, so we protect the database
-void exit() {
-  dbClose();
-  super.exit();
-}
-
+// ----- OTHER FUNCTIONS -----
 
 float[][] loadCoordinates(String filename) {
   String[] lines = loadStrings(filename);
@@ -143,6 +220,13 @@ float[][] loadCoordinates(String filename) {
   return pts;
 }
 
+void toggleShape(){
+  // move to next shape in the series
+  // there are three shapes, ids 1, 2, 3
+  if (shapeId == 3) shapeId = 1;
+  else shapeId ++; 
+}
+
 
 void setShape(int id) {
   // get shape info from db
@@ -160,9 +244,9 @@ void setShape(int id) {
 
   // Tell Arduino too, if connected.
   if (arduinoPort != null) {
-    if (shape_id == 0)      arduinoPort.write('B');
-    else if (shape_id == 1) arduinoPort.write('H');
-    else if (shape_id == 2) arduinoPort.write('P');
+    if (shapeId == 0)      arduinoPort.write('B');
+    else if (shapeId == 1) arduinoPort.write('H');
+    else if (shapeId == 2) arduinoPort.write('P');
   }
 }
 
@@ -235,4 +319,69 @@ void drawLines() {
     for (int i = 0; i < points.length - 1; i++) {
       line(points[i][0], points[i][1], points[i+1][0], points[i+1][1]);
     }
+}
+
+void setupShapeDropdown() {
+  String[][] shapeList = getShapeList();
+  String[] names = new String[shapeList.length];
+  int[] ids = new int[shapeList.length];
+
+  for (int i = 0; i < shapeList.length; i++) {
+    ids[i] = int(shapeList[i][0]);
+    names[i] = shapeList[i][1];
+  }
+
+  shapeDropdown = new Dropdown(20, 20, 200, 30, names, ids);
+  
+}
+
+void drawGuessSidebar() {
+  int panelX = 650;
+  int panelY = 80;
+  int panelW = 220;
+  int entryH = 38;
+  int gap = 8;
+  int cornerR = 10;
+
+  // Panel header
+  fill(60);
+  textAlign(LEFT, TOP);
+  textSize(13);
+  text("Recent guesses", panelX, panelY - 22);
+
+  if (recentGuesses.length == 0) {
+    fill(160);
+    textSize(12);
+    text("No guesses yet", panelX, panelY + 6);
+    return;
+  }
+
+  for (int i = 0; i < recentGuesses.length; i++) {
+    int cardY = panelY + i * (entryH + gap);
+
+    // Alternating soft background
+    if (i % 2 == 0) fill(253, 240, 248, 220);  // soft pink
+    else            fill(245, 242, 255, 220);   // soft lavender
+
+    noStroke();
+    rect(panelX, cardY, panelW, entryH, cornerR);
+
+    // Guess number badge
+    fill(180, 140, 200);
+    ellipse(panelX + 18, cardY + entryH / 2, 20, 20);
+    fill(255);
+    textAlign(CENTER, CENTER);
+    textSize(10);
+    text(i + 1, panelX + 18, cardY + entryH / 2);
+
+    // Guess text — truncate if too long
+    fill(50);
+    textAlign(LEFT, CENTER);
+    textSize(12);
+    String label = recentGuesses[i];
+    if (label.length() > 22) label = label.substring(0, 20) + "…";
+    text(label, panelX + 34, cardY + entryH / 2);
+  }
+  
+  textAlign(LEFT, TOP); // reset
 }
