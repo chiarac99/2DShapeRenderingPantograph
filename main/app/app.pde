@@ -3,8 +3,8 @@ import processing.serial.*;
 
 
 // ---------- MODE SELECTION ----------
-boolean STANDALONE_MODE = true;
-String SERIAL_PORT_NAME = "";       // auto-detect first port if blank
+boolean STANDALONE_MODE = false;
+Serial[] arduinoPorts = new Serial[0];
 
 // ---------- SERIAL ----------
 Serial arduinoPort = null;
@@ -243,10 +243,14 @@ void setShape(int id) {
   println("Active shape: " + currentShape.shapeName + " (" + points.length + " pts)");
 
   // Tell Arduino too, if connected.
-  if (arduinoPort != null) {
-    if (shapeId == 0)      arduinoPort.write('B');
-    else if (shapeId == 1) arduinoPort.write('H');
-    else if (shapeId == 2) arduinoPort.write('P');
+  // Tell Arduino too, if connected.
+  char cmd = 0;
+  if      (shapeId == 0) cmd = 'B';
+  else if (shapeId == 1) cmd = 'H';
+  else if (shapeId == 2) cmd = 'P';
+
+  if (cmd != 0) {
+    for (Serial p : arduinoPorts) p.write(cmd);
   }
 }
 
@@ -280,15 +284,28 @@ void setupSerial() {
   for (int i = 0; i < ports.length; i++) {
     println("  [" + i + "] " + ports[i]);
   }
-  if (ports.length == 0) {
-    println("No serial ports found; staying in STANDALONE mode.");
-    STANDALONE_MODE = true;
-    return;
+
+  // Collect all ports whose name contains "usbserial"
+  ArrayList<Serial> found = new ArrayList<Serial>();
+  for (String portName : ports) {
+    if (portName.toLowerCase().contains("tty.usbserial")) {
+      println("Connecting to: " + portName);
+      try {
+        found.add(new Serial(this, portName, 115200));
+      } catch (Exception e) {
+        println("Failed to open " + portName + ": " + e.getMessage());
+      }
+    }
   }
-  String portName = SERIAL_PORT_NAME.isEmpty() ? ports[0] : SERIAL_PORT_NAME;
-  println("Connecting to: " + portName);
-  arduinoPort = new Serial(this, portName, 115200);
-  arduinoPort.bufferUntil('\n');
+
+  arduinoPorts = found.toArray(new Serial[0]);
+
+  if (arduinoPorts.length == 0) {
+    println("No usbserial ports found; staying in STANDALONE mode.");
+    STANDALONE_MODE = true;
+  } else {
+    println("Connected to " + arduinoPorts.length + " usbserial port(s).");
+  }
 }
 
 // =============================================================
