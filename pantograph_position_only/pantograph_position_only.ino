@@ -3,6 +3,7 @@
 // Stripped to: encoder reading, inter-board serial, FK, print x/y
 // ============================================================
 
+#include <avr/pgmspace.h>
 #include <math.h>
 #include <SoftwareSerial.h>
 
@@ -16,16 +17,16 @@
 // SHAPE DATA
 // ============================================================
 enum ShapeId { SHAPE_BUNNY = 0, SHAPE_HAMMER = 1, SHAPE_PEAR = 2, SHAPE_SQUARE = 3 };
-ShapeId currentShape = SHAPE_TEST;     // change here for testing
+ShapeId currentShape = SHAPE_SQUARE;     // change here for testing
 // note: SHAPE_SQUARE is a tester: four points, a square
 const int N_SQUARE   = 4;
 const float shape_square[N_SQUARE][2] PROGMEM = {
-  {  -0.03f,  -0.03f},
-  { 0.03f,  -0.03f},
-  { 0.03f,  0.03f},
-  {  -0.03f,  0.03f},
-  {  -0.03f,  -0.03f}
-}
+  { -0.03f,  0.07f },
+  {  0.03f,  0.07f },
+  {  0.03f,  0.13f },
+  { -0.03f,  0.13f }
+};
+
 // active shape
 const float (*shape)[2] = shape_square;
 int N_POINTS = N_SQUARE;
@@ -198,29 +199,37 @@ void loop() {
     yh = 0.0f;
   }
 
-  // 4. Print telemetry every 50 loops (~50ms at 1kHz, readable in Serial Monitor) -> sends to Processing if motor 1
+  // 4. Computer force
+  float Fx, Fy;
+  computeForce(xh, yh, Fx, Fy);
+
+  // 5. Print telemetry every 50 loops (~50ms at 1kHz, readable in Serial Monitor) -> sends to Processing if motor 1
   #ifdef IS_MOTOR_1
     static int printCounter = 0;
     if (++printCounter >= 50) {
       float theta_self_deg  = ENC_M * updatedPos + ENC_B;
       float theta_partner_deg = theta_partner_rad * (180.0f / PI);
 
-      // Serial.print("updatedPos=");      Serial.print(updatedPos);
-      // Serial.print("  self_deg=");      Serial.print(theta_self_deg, 1);
-      // Serial.print("  partner_deg=");   Serial.print(theta_partner_deg, 1);
-      // Serial.print("  partner_rcvd=");  Serial.print(partner_received ? "YES" : "NO ");
-      // Serial.print("  xh=");           Serial.print(xh, 4);
-      // Serial.print("  yh=");           Serial.print(yh, 4);
-      Serial.print(xh, 4);
-      Serial.print(",");
-      Serial.print(yh, 4);
-      Serial.println();
+      Serial.print("updatedPos=");      Serial.print(updatedPos);
+      Serial.print("  self_deg=");      Serial.print(theta_self_deg, 1);
+      Serial.print("  partner_deg=");   Serial.print(theta_partner_deg, 1);
+      Serial.print("  partner_rcvd=");  Serial.print(partner_received ? "YES" : "NO ");
+      Serial.print("  xh=");           Serial.print(xh, 4);
+      Serial.print("  yh=");           Serial.print(yh, 4);
+      // Serial.print(xh, 4);
+      // Serial.print(",");
+      // Serial.print(yh, 4);
+      // Serial.println();
       printCounter = 0;
+
+      // print force (DEBUGGING ONLY)
+      Serial.print("Fx = ");
+      Serial.print(Fx);
+      Serial.print("Fy = ");
+      Serial.println(Fy);
     }
   #endif
 
-  // 5. Computer force
-  float Fx, Fy;
 
 }
 
@@ -361,12 +370,19 @@ void setShape(ShapeId s) {
       break;
   }
   checkWinding();
-  toggleLed();
 }
 
 // ============================================================
 // WINDING CHECK  (warn over serial if CW)
 // ============================================================
+float signedPolygonArea() {
+  float area = 0.0f;
+  for (int i = 0; i < N_POINTS; i++) {
+    int j = (i + 1) % N_POINTS;
+    area += shapeX(i) * shapeY(j) - shapeX(j) * shapeY(i);
+  }
+  return 0.5f * area;
+}
 void checkWinding() {
   float area = signedPolygonArea();
   if (area < 0.0f) {
@@ -434,3 +450,81 @@ int findNearestSegment(float x, float y, float &dist, float &nx, float &ny,
   t_frac = best_t;
   return best_i;
 }
+
+// ============================================================
+// FORCE FEEDBACK MODEL
+// ============================================================// 
+// Inside-shape linear wall stiffness.
+const float K_WALL = 2000.0f;       // N/m
+// Dead zone width (P_T is negative -- it's a depth on the outside).
+const float P_T = -0.003f;          // m, 3 mm dead zone outside the outline
+
+// Uses SIGNED penetration depth (positive = inside, negative = outside).
+//
+// Two regions:
+//   d > 0:         F_wall = -K_WALL * d * n_outward          (linear spring)
+//   d <= P_T:      F = A_GUIDE * exp(-C_GUIDE * (d - P_T))
+//                       * (-n_outward)                       (pulls toward shape)
+//
+// Note: n_outward is the unit outward normal of the nearest segment.
+// "Pushing the user outward from inside" = force along +n_outward,
+// "Pulling the user inward from outside" = force along -n_outward.
+//
+// The form -K_WALL*d (with d > 0 inside) produces a magnitude K_WALL*|d|
+// in the outward direction.
+void computeForce(float x, float y, float &Fx, float &Fy) {
+  // Find nearest segment and unsigned perpendicular distance.
+  float unsigned_d, nx, ny, t_frac;
+  int seg_i = findNearestSegment(x, y, unsigned_d, nx, ny, t_frac);
+
+  // Convert to SIGNED penetration depth: positive inside, negative outside.
+  bool inside = isInsidePolygon(x, y);
+  float d = inside ? unsigned_d : -unsigned_d;
+  Serial.println(d);
+
+  Fx = 0.0f;
+  Fy = 0.0f;
+
+  if (d > 0.0f) {
+    // ---------- INSIDE the shape: linear wall spring (+ damping + texture)
+    float F_wall_mag = K_WALL * d;  // magnitude in the outward-normal direction
+
+    Fx = F_wall_mag * nx;
+    Fy = F_wall_mag * ny;
+
+  } else if (d > P_T) {
+    // ---------- DEAD ZONE: no force, user can move freely near the outline
+    Fx = 0.0f;
+    Fy = 0.0f;
+
+  } 
+  // else {
+  //   // ---------- FAR OUTSIDE: exponential guidance pulling toward the shape
+  //   // F = A_GUIDE * exp(-C_GUIDE * (d - P_T))
+  //   //   At d = P_T:   F = A_GUIDE  (peak guidance at dead-zone edge)
+  //   //   At d < P_T:   F grows exponentially as user goes further out
+  //   //   Clamped at F_GUIDE_MAX so the motors never have to deliver more
+  //   //   force than they can handle.
+  //   float F_guide = A_GUIDE * expf(-C_GUIDE * (d - P_T));
+  //   if (F_guide > F_GUIDE_MAX) F_guide = F_GUIDE_MAX;
+  //   // Sign flip: pull INWARD, opposite to outward normal.
+  //   Fx = -F_guide * nx;
+  //   Fy = -F_guide * ny;
+  // }
+}
+// ============================================================
+// INSIDE/OUTSIDE TEST  (ray casting)
+// ============================================================
+bool isInsidePolygon(float x, float y) {
+  bool inside = false;
+  for (int i = 0, j = N_POINTS - 1; i < N_POINTS; j = i++) {
+    float xi = shapeX(i), yi = shapeY(i);
+    float xj = shapeX(j), yj = shapeY(j);
+
+    bool intersect = ((yi > y) != (yj > y)) &&
+                     (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
