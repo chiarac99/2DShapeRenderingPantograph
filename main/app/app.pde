@@ -5,6 +5,8 @@ import processing.serial.*;
 // ---------- MODE SELECTION ----------
 boolean STANDALONE_MODE = false;
 Serial[] arduinoPorts = new Serial[0];
+boolean TEST = true; // 0=off, 1=on — draws a test square + pen tip only
+int TEST_SHAPE_ID = 4; // whichever shape ID is the square in your db
 
 // ---------- SERIAL ----------
 Serial arduinoPort = null;
@@ -22,6 +24,8 @@ boolean texturedMode = true;
 // ---------- PHYSICAL <-> SCREEN MAPPING ----------
 float PIXELS_PER_METER = 4000.0f;
 float ORIGIN_X, ORIGIN_Y;
+float WORKSPACE_CENTER_X = 0.0;  // fill in from serial monitor
+float WORKSPACE_CENTER_Y = 0.1; // fill in from serial monitor
 
 // ---------- FORCE MODEL PARAMETERS (must match .ino) ----------
 float K_WALL       = 2000.0f;
@@ -77,25 +81,27 @@ void setup() {
   ORIGIN_Y = height / 2.0f;
   
   setupSerial();
+  dbConnect(); // needed to load the shape csv filename
   
-  // connect to database
-  dbConnect();
-  
-  // set shape
-  setShape(shapeId);
-  
-  // display buttons
-  nextShapeBtn = new Button(700, 700, 120, 35, "Next");
-  // display dropdown
-  setupShapeDropdown();
-  // guess input
-  guessInput = new TextInput(100, 200, 300, 40, "What do you think the shape is...");
-  submitBtn = new Button(500, 200, 120, 35, "Go");
+  if (TEST) {
+    setShape(TEST_SHAPE_ID);
+  } else {
+    setShape(shapeId);
+    nextShapeBtn   = new Button(700, 700, 120, 35, "Next");
+    setupShapeDropdown();
+    guessInput     = new TextInput(100, 200, 300, 40, "What do you think the shape is...");
+    submitBtn      = new Button(500, 200, 120, 35, "Go");
+  }
   
 }
 
 void draw() {
   background(255);
+  if (TEST) {
+    drawTestMode();
+    return;
+  }
+  
   if (screen == 0) drawGuessScreen();
   else drawResultsScreen();
 
@@ -135,6 +141,20 @@ void toggleScreen(){
  else screen = 0;
 }
 
+void drawTestMode() {
+  float xh = arduinoFx - WORKSPACE_CENTER_X;
+  float yh = arduinoFy - WORKSPACE_CENTER_Y;
+
+  drawLines();
+  drawDots();
+  drawPenTip(xh, yh);
+
+  fill(80);
+  textAlign(LEFT, TOP);
+  textSize(12);
+  text("TEST MODE — serial: (" + nf(arduinoFx, 1, 4) + ", " + nf(arduinoFy, 1, 4) + ")", 10, 10);
+}
+
 void drawGuessScreen(){
   guessInput.draw();
   submitBtn.draw();
@@ -152,9 +172,9 @@ void drawGuessScreen(){
 }
 
 void drawResultsScreen(){
-  // update user position // TODO: update with values from serial
-  float xh = (mouseX - ORIGIN_X) / PIXELS_PER_METER;
-  float yh = -(mouseY - ORIGIN_Y) / PIXELS_PER_METER;
+  // update user position
+  float xh = arduinoFx - WORKSPACE_CENTER_X;
+  float yh = arduinoFy - WORKSPACE_CENTER_Y;
 
   // draw user
   drawPenTip(xh, yh);
@@ -231,9 +251,6 @@ void toggleShape(){
 void setShape(int id) {
   // get shape info from db
   currentShape = getCurrentShape(id);
-  
-  // load + read svg
-  baseSVG = loadShape(currentShape.svgFilename);
   
   // load csv coordinates
   points = loadCoordinates(currentShape.csvFilename);
@@ -401,4 +418,22 @@ void drawGuessSidebar() {
   }
   
   textAlign(LEFT, TOP); // reset
+}
+
+void serialEvent(Serial p) {
+  String raw = p.readStringUntil('\n');
+  if (raw == null) return;
+  raw = raw.trim();
+
+  String[] parts = splitTokens(raw, ", \t");
+  if (parts.length >= 2) {
+    try {
+      arduinoFx = float(parts[0]);
+      arduinoFy = float(parts[1]);
+      //println(arduinoFx);
+      //println(arduinoFy);
+    } catch (Exception e) {
+      println("Bad serial packet: " + raw);
+    }
+  }
 }
