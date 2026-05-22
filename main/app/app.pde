@@ -10,7 +10,8 @@ int TEST_SHAPE_ID = 4; // whichever shape ID is the square in your db
 
 // ---------- SERIAL ----------
 Serial arduinoPort = null;
-float arduinoFx = 0, arduinoFy = 0;
+float arduinoFx = 0, arduinoFy = 0;   // pen tip position from Arduino (named Fx/Fy historically; actually x/y)
+float arduinoForceX = 0, arduinoForceY = 0;   // force from Arduino force model
 
 // ---------- VELOCITY TRACKING ----------
 float xh_prev = 0, yh_prev = 0;
@@ -28,7 +29,7 @@ float WORKSPACE_CENTER_X = 0.0;  // fill in from serial monitor
 float WORKSPACE_CENTER_Y = 0.1; // fill in from serial monitor
 
 // ---------- FORCE MODEL PARAMETERS (must match .ino) ----------
-float K_WALL       = 2000.0f;
+float K_WALL       = 200.0f;
 float B_WALL       = 15.0f;
 float P_T          = -0.003f;
 float A_GUIDE      = 0.5f;
@@ -145,14 +146,21 @@ void drawTestMode() {
   float xh = arduinoFx - WORKSPACE_CENTER_X;
   float yh = arduinoFy - WORKSPACE_CENTER_Y;
 
-  drawLines();
+  drawLines();    // CSV-defined square
   drawDots();
+  drawFirmwareSquare();   // overlay: where the firmware *thinks* the square is
   drawPenTip(xh, yh);
+  drawForceVector(xh, yh);   // arrow showing direction/magnitude of force
 
+  // Text overlay
   fill(80);
   textAlign(LEFT, TOP);
   textSize(12);
-  text("TEST MODE — serial: (" + nf(arduinoFx, 1, 4) + ", " + nf(arduinoFy, 1, 4) + ")", 10, 10);
+  text("TEST MODE", 10, 10);
+  text("pen: (" + nf(arduinoFx, 1, 4) + ", " + nf(arduinoFy, 1, 4) + ") m", 10, 26);
+  text("force: (" + nf(arduinoForceX, 1, 3) + ", " + nf(arduinoForceY, 1, 3) + ") N", 10, 42);
+  float fmag = sqrt(arduinoForceX*arduinoForceX + arduinoForceY*arduinoForceY);
+  text("|F| = " + nf(fmag, 1, 3) + " N", 10, 58);
 }
 
 void drawGuessScreen(){
@@ -338,6 +346,60 @@ void drawPenTip(float xh, float yh) {
   ellipse(meterToPixelX(xh), meterToPixelY(yh), 12, 12);
 }
 
+// Draw the firmware's square outline (where forces are computed against)
+// in physical coords, accounting for WORKSPACE_CENTER offset.
+// Vertices must match SHAPE_PTS in the firmware exactly (physical meters).
+// Closed polygon — last vertex connects back to first.
+float[][] FIRMWARE_SHAPE_PTS = {
+  { -0.03f, 0.07f },
+  {  0.03f, 0.07f },
+  {  0.03f, 0.13f },
+  { -0.03f, 0.13f }
+};
+
+// Draw the polygon outline the firmware is computing forces against.
+// Drawn in physical coords, offset by WORKSPACE_CENTER to match the pen.
+void drawFirmwareSquare() {
+  stroke(0, 200, 100, 150);   // green outline
+  strokeWeight(2);
+  noFill();
+
+  beginShape();
+  for (int i = 0; i < FIRMWARE_SHAPE_PTS.length; i++) {
+    float xm = FIRMWARE_SHAPE_PTS[i][0] - WORKSPACE_CENTER_X;
+    float ym = FIRMWARE_SHAPE_PTS[i][1] - WORKSPACE_CENTER_Y;
+    vertex(meterToPixelX(xm), meterToPixelY(ym));
+  }
+  endShape(CLOSE);   // closes the polygon
+}
+
+// Draw an arrow from pen tip showing force vector.
+// Force is in Newtons; we scale it for visibility.
+void drawForceVector(float xh_screen, float yh_screen) {
+  float fmag = sqrt(arduinoForceX*arduinoForceX + arduinoForceY*arduinoForceY);
+  if (fmag < 1e-4f) return;
+
+  // Scale: 1 N -> 50 pixels (tweak if arrow is too big/small)
+  float SCALE_PX_PER_N = 50.0f;
+
+  float startX = meterToPixelX(xh_screen);
+  float startY = meterToPixelY(yh_screen);
+  // Note: meterToPixelY flips y (screen y grows downward), so y-component
+  // of force must be flipped too for the arrow direction to be correct.
+  float endX = startX + arduinoForceX * SCALE_PX_PER_N;
+  float endY = startY - arduinoForceY * SCALE_PX_PER_N;
+
+  stroke(255, 50, 50, 200);
+  strokeWeight(3);
+  line(startX, startY, endX, endY);
+
+  // Simple arrowhead
+  float ang = atan2(endY - startY, endX - startX);
+  float ah = 8;
+  line(endX, endY, endX - ah*cos(ang - PI/6), endY - ah*sin(ang - PI/6));
+  line(endX, endY, endX - ah*cos(ang + PI/6), endY - ah*sin(ang + PI/6));
+}
+
 void drawDots() {
   fill(red(dotColor), green(dotColor), blue(dotColor), dotOpacity);
     noStroke();
@@ -426,14 +488,24 @@ void serialEvent(Serial p) {
   raw = raw.trim();
 
   String[] parts = splitTokens(raw, ", \t");
-  if (parts.length >= 2) {
+  if (parts.length >= 4) {
     try {
-      arduinoFx = float(parts[0]);
-      arduinoFy = float(parts[1]);
-      //println(arduinoFx);
-      //println(arduinoFy);
+      float xh = Float.parseFloat(parts[0]);
+      float yh = Float.parseFloat(parts[1]);
+      float fx = Float.parseFloat(parts[2]);
+      float fy = Float.parseFloat(parts[3]);
+      arduinoFx = xh;
+      arduinoFy = yh;
+      arduinoForceX = fx;
+      arduinoForceY = fy;
     } catch (Exception e) {
-      println("Bad serial packet: " + raw);
+      // Bad packet — ignore silently (most are # debug lines from board 1)
     }
+  } else if (parts.length >= 2) {
+    // Backward compat: pre-step-2 firmware sent only xh, yh
+    try {
+      arduinoFx = Float.parseFloat(parts[0]);
+      arduinoFy = Float.parseFloat(parts[1]);
+    } catch (Exception e) {}
   }
 }
