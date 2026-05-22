@@ -61,7 +61,7 @@ const float SECTOR_GEAR_REDUCTION = 1.0f;
 //   D5 = PWM Output for Motor 1
 //   D8 = Direction Output for Motor 1
 // (Per ME327 Hapkit Pin Mapping doc, 11.14.2013)
-const bool MOTOR_TEST_ENABLED      = true;
+const bool MOTOR_TEST_ENABLED      = false;
 const int  MOTOR_TEST_PWM          = 100;      // 0-255, ~24% duty (with setPwmFrequency = smooth)
 // NOTE: millis() runs 64x fast because setPwmFrequency(5,1) was called.
 // 64000 here actually means ~1 second of real wall-clock time.
@@ -71,6 +71,10 @@ const int  MOTOR_TEST_MAX_FLIPS    = 4;       // only 4 flips at this PWM level
 bool motor_killed = false;
 bool motor_test_started = false;   // gate — set to true only after 'g' received
 int  motor_flip_count = 0;
+// Step 5b: kill switch for FORCE_OUTPUT path. Distinct from motor_killed
+// (which is for the twitch test). Set true if any USB Serial input arrives
+// during force feedback.
+bool force_killed = false;
 
 // ============================================================
 // FORCE MODEL — polygon wall test (step 3)
@@ -81,7 +85,27 @@ int  motor_flip_count = 0;
 // change SHAPE_PTS and SHAPE_N.
 //
 // Currently: same 6cm x 6cm square as step 2, centered at (0, 0.10).
-const float K_WALL = 200.0f;  // spring stiffness [N/m]
+const float K_WALL = 30.0f;  // spring stiffness [N/m]
+
+// ============================================================
+// MOTOR DRIVE CONSTANTS (step 5)
+// ============================================================
+// Torque -> duty cycle: duty = sqrt(|tau| / TORQUE_TO_DUTY_K)
+// where duty ∈ [0,1] and output = duty * 255 (PWM 0..255).
+// Constant 0.0183 lifted from A3/A4 Hapkit templates.
+const float TORQUE_TO_DUTY_K = 0.0183f;
+
+// Safety cap on PWM output — never exceed this even if math says higher.
+// 153 = 60% of 255, matches Hapkit motor thermal limit.
+const int   PWM_OUTPUT_CAP   = 153;
+
+// Numerical Jacobian: perturbation size for finite-difference (radians)
+const float JAC_PERTURB      = 1e-4f;
+
+// MASTER SAFETY SWITCH for motor force output.
+// Step 5a: keep FALSE — motor stays OFF, only print torque/duty for inspection.
+// Step 5b: flip to TRUE after we trust the numbers.
+const bool  FORCE_OUTPUT_ENABLED = true;
 
 const int   SHAPE_N = 4;
 const float SHAPE_PTS[SHAPE_N][2] = {
@@ -227,6 +251,80 @@ void computeForce(float xh, float yh, float &Fx, float &Fy) {
 }
 
 // ============================================================
+// JACOBIAN + MOTOR OUTPUT (step 5)
+// ============================================================
+// Given Cartesian force (Fx, Fy) and current joint angles (theta1, theta5),
+// compute the torque this board's motor needs to produce, then convert to
+// PWM duty cycle.
+//
+// Uses NUMERICAL Jacobian (finite difference) — perturb our own theta,
+// re-run FK, observe (dxh, dyh). The column of J^T for our motor is then:
+//   [dxh/dtheta_self, dyh/dtheta_self]
+// And tau_self = (dxh/dtheta_self) * Fx + (dyh/dtheta_self) * Fy.
+//
+// Returns the PWM output (0..255, capped at PWM_OUTPUT_CAP).
+// Always writes Tx_out and duty_out for telemetry, even if motor disabled.
+// ============================================================
+// JACOBIAN + MOTOR OUTPUT (step 5)
+// ============================================================
+// Given Cartesian force (Fx, Fy) and current joint angles (theta1, theta5),
+// compute the torque this board's motor needs to produce, then convert to
+// PWM duty cycle. Also determines motor direction from torque sign.
+//
+// Uses NUMERICAL Jacobian (finite difference) — perturb our own theta,
+// re-run FK, observe (dxh, dyh). The column of J^T for our motor is then:
+//   [dxh/dtheta_self, dyh/dtheta_self]
+// And tau_self = (dxh/dtheta_self) * Fx + (dyh/dtheta_self) * Fy.
+//
+// Returns the PWM output (0..PWM_OUTPUT_CAP).
+// Also sets dir_out: true = DIR pin HIGH, false = DIR pin LOW.
+// (Which sign means which physical direction will be calibrated on first test.)
+int computeMotorOutputPWM(float Fx, float Fy,
+                          float theta1, float theta5,
+                          float &tau_out, float &duty_out,
+                          bool &dir_out) {
+  // Baseline FK at current angles
+  float x0, y0;
+  if (!computeFwdKin(theta1, theta5, x0, y0)) {
+    tau_out = 0.0f;
+    duty_out = 0.0f;
+    dir_out = false;
+    return 0;
+  }
+
+  float x_p, y_p;
+#ifdef IS_MOTOR_1
+  if (!computeFwdKin(theta1 + JAC_PERTURB, theta5, x_p, y_p)) {
+    tau_out = 0.0f; duty_out = 0.0f; dir_out = false; return 0;
+  }
+#else
+  if (!computeFwdKin(theta1, theta5 + JAC_PERTURB, x_p, y_p)) {
+    tau_out = 0.0f; duty_out = 0.0f; dir_out = false; return 0;
+  }
+#endif
+
+  float dxh_dth = (x_p - x0) / JAC_PERTURB;
+  float dyh_dth = (y_p - y0) / JAC_PERTURB;
+
+  float tau = dxh_dth * Fx + dyh_dth * Fy;
+  tau_out = tau;
+
+  // Direction from sign of tau. Convention TBD on first test — if motor
+  // pushes the WRONG way, we'll invert this bool.
+  dir_out = (tau >= 0.0f);
+
+  float duty = sqrtf(fabsf(tau) / TORQUE_TO_DUTY_K);
+  if (duty > 1.0f) duty = 1.0f;
+  if (duty < 0.0f) duty = 0.0f;
+  duty_out = duty;
+
+  int pwm = (int)(duty * 255.0f);
+  if (pwm > PWM_OUTPUT_CAP) pwm = PWM_OUTPUT_CAP;
+
+  return pwm;
+}
+
+// ============================================================
 // SETUP
 // ============================================================
 void setup() {
@@ -248,12 +346,10 @@ void setup() {
 
   pinMode(sensorPosPin, INPUT);
 
-  Serial.println("Pantograph position-only firmware ready.");
-#ifdef IS_MOTOR_1
-  Serial.println("Role: MOTOR 1 (theta1 = own encoder)");
-#else
-  Serial.println("Role: MOTOR 5 (theta5 = own encoder)");
-#endif
+  #ifndef IS_MOTOR_1
+    Serial.println("Pantograph position-only firmware ready.");
+    Serial.println("Role: MOTOR 5 (theta5 = own encoder)");
+  #endif
 
 if (MOTOR_TEST_ENABLED) {
     Serial.println("# MOTOR TEST MODE ARMED — motor is OFF.");
@@ -290,32 +386,71 @@ void loop() {
   float Fx, Fy;
   computeForce(xh, yh, Fx, Fy);
 
-  // 4a. CSV output for Processing GUI — every loop, format: "xh,yh,Fx,Fy\n"
-  Serial.print(xh, 4);
-  Serial.print(',');
-  Serial.print(yh, 4);
-  Serial.print(',');
-  Serial.print(Fx, 3);
-  Serial.print(',');
-  Serial.println(Fy, 3);
-
-  // 4b. Human-readable debug every 50 loops (GUI will ignore these as bad packets)
-  static int printCounter = 0;
-  if (++printCounter >= 50) {
-    float theta_self_deg  = ENC_M * updatedPos + ENC_B;
-    float theta_partner_deg = theta_partner_rad * (180.0f / PI);
-
-    Serial.print("# updatedPos=");    Serial.print(updatedPos);
-    Serial.print("  self_deg=");      Serial.print(theta_self_deg, 1);
-    Serial.print("  partner_deg=");   Serial.print(theta_partner_deg, 1);
-    Serial.print("  partner_rcvd=");  Serial.print(partner_received ? "YES" : "NO ");
-    Serial.print("  xh=");            Serial.print(xh, 4);
-    Serial.print("  yh=");            Serial.print(yh, 4);
-    Serial.print("  Fx=");            Serial.print(Fx, 3);
-    Serial.print("  Fy=");            Serial.print(Fy, 3);
-    Serial.println();
-    printCounter = 0;
+  // 3c. Compute torque + PWM from force (Jacobian transpose).
+  float tau_out = 0.0f, duty_out = 0.0f;
+  int  pwm_out = 0;
+  bool dir_out = false;
+  if (partner_received) {
+  #ifdef IS_MOTOR_1
+    float t1 = theta_self;
+    float t5 = theta_partner_rad;
+  #else
+    float t1 = theta_partner_rad;
+    float t5 = theta_self;
+  #endif
+    pwm_out = computeMotorOutputPWM(Fx, Fy, t1, t5, tau_out, duty_out, dir_out);
   }
+
+  // 3d. Apply force to motor — ONLY if all safety gates pass.
+  //     ANY USB Serial input (while not in twitch test) kills force output.
+  if (FORCE_OUTPUT_ENABLED && !force_killed && !motor_killed && !motor_test_started) {
+    if (Serial.available()) {
+      while (Serial.available()) Serial.read();
+      force_killed = true;
+      analogWrite(PWM_PIN_LOCAL, 0);
+      digitalWrite(DIR_PIN_LOCAL, LOW);
+      Serial.println("# FORCE OUTPUT KILLED by serial input.");
+    } else {
+      digitalWrite(DIR_PIN_LOCAL, dir_out ? HIGH : LOW);
+      analogWrite(PWM_PIN_LOCAL, pwm_out);
+    }
+  } else {
+    // Force output disabled or killed — make sure motor is off
+    analogWrite(PWM_PIN_LOCAL, 0);
+  }
+
+  #ifndef IS_MOTOR_1
+    // 4a. CSV output for Processing GUI — every loop, format: "xh,yh,Fx,Fy\n"
+    //     Only Board 5 prints; Board 1 stays silent on USB.
+    Serial.print(xh, 4);
+    Serial.print(',');
+    Serial.print(yh, 4);
+    Serial.print(',');
+    Serial.print(Fx, 3);
+    Serial.print(',');
+    Serial.println(Fy, 3);
+
+    // 4b. Human-readable debug every 50 loops (GUI will ignore these as bad packets)
+    static int printCounter = 0;
+    if (++printCounter >= 50) {
+      float theta_self_deg  = ENC_M * updatedPos + ENC_B;
+      float theta_partner_deg = theta_partner_rad * (180.0f / PI);
+
+      Serial.print("# updatedPos=");    Serial.print(updatedPos);
+      Serial.print("  self_deg=");      Serial.print(theta_self_deg, 1);
+      Serial.print("  partner_deg=");   Serial.print(theta_partner_deg, 1);
+      Serial.print("  partner_rcvd=");  Serial.print(partner_received ? "YES" : "NO ");
+      Serial.print("  xh=");            Serial.print(xh, 4);
+      Serial.print("  yh=");            Serial.print(yh, 4);
+      Serial.print("  Fx=");            Serial.print(Fx, 3);
+      Serial.print("  Fy=");            Serial.print(Fy, 3);
+      Serial.print("  tau=");           Serial.print(tau_out, 5);
+      Serial.print("  duty=");          Serial.print(duty_out, 3);
+      Serial.print("  pwm=");           Serial.print(pwm_out);
+      Serial.println();
+      printCounter = 0;
+    }
+  #endif
 
   // 5. MOTOR TEST (step 4) — gated by serial 'g' trigger.
   //    'g'  -> START the twitch test (only if not already running/killed)
