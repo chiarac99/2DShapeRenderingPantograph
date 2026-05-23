@@ -50,6 +50,13 @@ SoftwareSerial linkSerial(LINK_RX_PIN, LINK_TX_PIN);
 
 const float SECTOR_GEAR_REDUCTION = 1.0f;
 
+// // ============================================================
+// // VELOCITY TRACKING (for wall damping)
+// // ============================================================
+// float xh_prev = 0.0f, yh_prev = 0.0f;
+// float vx_filt = 0.0f, vy_filt = 0.0f;
+// const float DT_LOOP = 0.001f;
+
 // ============================================================
 // MOTOR TEST MODE (step 4 — temporary)
 // ============================================================
@@ -234,6 +241,7 @@ bool pointInPolygon(float px, float py) {
 //
 // This is the placeholder. Later we'll replace it with a real
 // polygon-based force model (nearest-segment + ray-casting).
+const float B_WALL = 0.5f;
 void computeForce(float xh, float yh, float &Fx, float &Fy) {
   // Inside the polygon? No force (this is the "interior" — pen moves freely).
   if (pointInPolygon(xh, yh)) {
@@ -248,6 +256,9 @@ void computeForce(float xh, float yh, float &Fx, float &Fy) {
   findNearestPointOnPolygon(xh, yh, nx, ny);
   Fx = K_WALL * (nx - xh);
   Fy = K_WALL * (ny - yh);
+
+  // Fx -= B_WALL * vx_filt;
+  // Fy -= B_WALL * vy_filt;
 }
 
 // ============================================================
@@ -382,6 +393,14 @@ void loop() {
     yh = 0.0f;
   }
 
+  // 3a. compute velocity
+  // float vx = (xh - xh_prev) / DT_LOOP;
+  // float vy = (yh - yh_prev) / DT_LOOP;
+  // vx_filt = 0.9f * vx_filt + 0.1f * vx;  // smooth it
+  // vy_filt = 0.9f * vy_filt + 0.1f * vy;
+  // xh_prev = xh;
+  // yh_prev = yh;
+
   // 3b. Compute force (display only — motors are NOT driven this step)
   float Fx, Fy;
   computeForce(xh, yh, Fx, Fy);
@@ -419,20 +438,22 @@ void loop() {
     analogWrite(PWM_PIN_LOCAL, 0);
   }
 
-  #ifndef IS_MOTOR_1
-    // 4a. CSV output for Processing GUI — every loop, format: "xh,yh,Fx,Fy\n"
-    //     Only Board 5 prints; Board 1 stays silent on USB.
-    Serial.print(xh, 4);
-    Serial.print(',');
-    Serial.print(yh, 4);
-    Serial.print(',');
-    Serial.print(Fx, 3);
-    Serial.print(',');
-    Serial.println(Fy, 3);
+#ifndef IS_MOTOR_1
+    static int csvCounter = 0;
+    if (++csvCounter >= 5) {
+      Serial.print(xh, 4);
+      Serial.print(',');
+      Serial.print(yh, 4);
+      Serial.print(',');
+      Serial.print(Fx, 3);
+      Serial.print(',');
+      Serial.println(Fy, 3);
+      csvCounter = 0;
+    }
 
     // 4b. Human-readable debug every 50 loops (GUI will ignore these as bad packets)
     static int printCounter = 0;
-    if (++printCounter >= 50) {
+    if (++printCounter >= 500) {
       float theta_self_deg  = ENC_M * updatedPos + ENC_B;
       float theta_partner_deg = theta_partner_rad * (180.0f / PI);
 
@@ -619,7 +640,7 @@ void handleSerialLink(float theta_self) {
 
       // Only accept values in a plausible angle range (-2pi to +2pi).
       // This guards against parseFloat() returning 0 on timeout.
-      if (val > -7.0f && val < 7.0f && val != 0.0f) {
+      if (val > -3.2f && val < 3.2f && val != 0.0f) {
         theta_partner_rad = val;
         partner_received  = true;
       }

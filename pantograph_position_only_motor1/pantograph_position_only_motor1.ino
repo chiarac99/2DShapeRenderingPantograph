@@ -605,7 +605,7 @@ void getPenTipPosition(float &x, float &y, float theta_self) {
 void handleSerialLink(float theta_self) {
   // --- Send own theta (rate-limited: every 20 loops) ---
   static int txCounter = 0;
-  if (++txCounter >= 20) {
+  if (++txCounter >= 5) {
     linkSerial.print("A");
     linkSerial.println(theta_self, 4);
     txCounter = 0;
@@ -619,7 +619,7 @@ void handleSerialLink(float theta_self) {
 
       // Only accept values in a plausible angle range (-2pi to +2pi).
       // This guards against parseFloat() returning 0 on timeout.
-      if (val > -7.0f && val < 7.0f && val != 0.0f) {
+      if (val > -3.2f && val < 3.2f && val != 0.0f) {
         theta_partner_rad = val;
         partner_received  = true;
       }

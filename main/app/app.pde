@@ -143,8 +143,8 @@ void toggleScreen(){
 }
 
 void drawTestMode() {
-  float xh = arduinoFx - WORKSPACE_CENTER_X;
-  float yh = arduinoFy - WORKSPACE_CENTER_Y;
+  float xh = -(arduinoFx - WORKSPACE_CENTER_X);
+  float yh = -(arduinoFy - WORKSPACE_CENTER_Y);
 
   drawLines();    // CSV-defined square
   drawDots();
@@ -313,7 +313,8 @@ void setupSerial() {
   // Collect all ports whose name contains "usbserial"
   ArrayList<Serial> found = new ArrayList<Serial>();
   for (String portName : ports) {
-    if (portName.toLowerCase().contains("tty.usbserial")) {
+    //if (portName.toLowerCase().contains("tty.usbserial")) { // this is for MAC
+    if (portName.toLowerCase().contains("com")) { //this for windows
       println("Connecting to: " + portName);
       try {
         found.add(new Serial(this, portName, 115200));
@@ -386,8 +387,8 @@ void drawForceVector(float xh_screen, float yh_screen) {
   float startY = meterToPixelY(yh_screen);
   // Note: meterToPixelY flips y (screen y grows downward), so y-component
   // of force must be flipped too for the arrow direction to be correct.
-  float endX = startX + arduinoForceX * SCALE_PX_PER_N;
-  float endY = startY - arduinoForceY * SCALE_PX_PER_N;
+  float endX = startX - arduinoForceX * SCALE_PX_PER_N;
+  float endY = startY + arduinoForceY * SCALE_PX_PER_N;
 
   stroke(255, 50, 50, 200);
   strokeWeight(3);
