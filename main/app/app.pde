@@ -310,30 +310,18 @@ void setupSerial() {
     println("  [" + i + "] " + ports[i]);
   }
 
-  // Collect all ports whose name contains "usbserial"
-  ArrayList<Serial> found = new ArrayList<Serial>();
-  for (String portName : ports) {
-    //if (portName.toLowerCase().contains("tty.usbserial")) { // this is for MAC
-    if (portName.toLowerCase().contains("com")) { //this for windows
-      println("Connecting to: " + portName);
-      try {
-        found.add(new Serial(this, portName, 115200));
-      } catch (Exception e) {
-        println("Failed to open " + portName + ": " + e.getMessage());
-      }
-    }
-  }
+  // Connect to Board 5 ONLY — hardcode the port name
+  String BOARD5_PORT = "COM3";  // ← change this to whatever Board 5 is
 
-  arduinoPorts = found.toArray(new Serial[0]);
-
-  if (arduinoPorts.length == 0) {
-    println("No usbserial ports found; staying in STANDALONE mode.");
+  try {
+    Serial board5 = new Serial(this, BOARD5_PORT, 115200);
+    arduinoPorts = new Serial[]{ board5 };
+    println("Connected to Board 5 on " + BOARD5_PORT);
+  } catch (Exception e) {
+    println("Failed to connect: " + e.getMessage());
     STANDALONE_MODE = true;
-  } else {
-    println("Connected to " + arduinoPorts.length + " usbserial port(s).");
   }
 }
-
 // =============================================================
 // VISUAL RENDERING
 // =============================================================

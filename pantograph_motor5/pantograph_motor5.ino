@@ -9,7 +9,7 @@
 // ============================================================
 // BOARD ROLE — comment/uncomment ONE of these
 // ============================================================
-#define IS_MOTOR_1    // Board 1 (left motor)
+//#define IS_MOTOR_1    // Board 1 (left motor)
 // (comment out above for Board 5, right motor)
 
 // ============================================================
@@ -49,6 +49,13 @@ SoftwareSerial linkSerial(LINK_RX_PIN, LINK_TX_PIN);
 #endif
 
 const float SECTOR_GEAR_REDUCTION = 1.0f;
+
+// // ============================================================
+// // VELOCITY TRACKING (for wall damping)
+// // ============================================================
+// float xh_prev = 0.0f, yh_prev = 0.0f;
+// float vx_filt = 0.0f, vy_filt = 0.0f;
+// const float DT_LOOP = 0.001f;
 
 // ============================================================
 // MOTOR TEST MODE (step 4 — temporary)
@@ -234,6 +241,7 @@ bool pointInPolygon(float px, float py) {
 //
 // This is the placeholder. Later we'll replace it with a real
 // polygon-based force model (nearest-segment + ray-casting).
+const float B_WALL = 0.5f;
 void computeForce(float xh, float yh, float &Fx, float &Fy) {
   // Inside the polygon? No force (this is the "interior" — pen moves freely).
   if (pointInPolygon(xh, yh)) {
@@ -248,6 +256,9 @@ void computeForce(float xh, float yh, float &Fx, float &Fy) {
   findNearestPointOnPolygon(xh, yh, nx, ny);
   Fx = K_WALL * (nx - xh);
   Fy = K_WALL * (ny - yh);
+
+  // Fx -= B_WALL * vx_filt;
+  // Fy -= B_WALL * vy_filt;
 }
 
 // ============================================================
@@ -330,7 +341,6 @@ int computeMotorOutputPWM(float Fx, float Fy,
 void setup() {
   Serial.begin(115200);
   linkSerial.begin(19200);
-  linkSerial.setTimeout(10);
 
   // High PWM frequency for smooth motor torque (matches A3/A4 Hapkit templates).
   // CAUTION: this changes Timer 0 prescaler /64 -> /1, so millis(), micros(),
@@ -382,6 +392,14 @@ void loop() {
     yh = 0.0f;
   }
 
+  // 3a. compute velocity
+  // float vx = (xh - xh_prev) / DT_LOOP;
+  // float vy = (yh - yh_prev) / DT_LOOP;
+  // vx_filt = 0.9f * vx_filt + 0.1f * vx;  // smooth it
+  // vy_filt = 0.9f * vy_filt + 0.1f * vy;
+  // xh_prev = xh;
+  // yh_prev = yh;
+
   // 3b. Compute force (display only — motors are NOT driven this step)
   float Fx, Fy;
   computeForce(xh, yh, Fx, Fy);
@@ -419,20 +437,22 @@ void loop() {
     analogWrite(PWM_PIN_LOCAL, 0);
   }
 
-  #ifndef IS_MOTOR_1
-    // 4a. CSV output for Processing GUI — every loop, format: "xh,yh,Fx,Fy\n"
-    //     Only Board 5 prints; Board 1 stays silent on USB.
-    Serial.print(xh, 4);
-    Serial.print(',');
-    Serial.print(yh, 4);
-    Serial.print(',');
-    Serial.print(Fx, 3);
-    Serial.print(',');
-    Serial.println(Fy, 3);
+#ifndef IS_MOTOR_1
+    static int csvCounter = 0;
+    if (++csvCounter >= 5) {
+      Serial.print(xh, 4);
+      Serial.print(',');
+      Serial.print(yh, 4);
+      Serial.print(',');
+      Serial.print(Fx, 3);
+      Serial.print(',');
+      Serial.println(Fy, 3);
+      csvCounter = 0;
+    }
 
     // 4b. Human-readable debug every 50 loops (GUI will ignore these as bad packets)
     static int printCounter = 0;
-    if (++printCounter >= 50) {
+    if (++printCounter >= 500) {
       float theta_self_deg  = ENC_M * updatedPos + ENC_B;
       float theta_partner_deg = theta_partner_rad * (180.0f / PI);
 
@@ -593,46 +613,63 @@ void getPenTipPosition(float &x, float &y, float theta_self) {
 }
 
 // ============================================================
-// INTER-BOARD SERIAL LINK
+// INTER-BOARD SERIAL LINK  (binary protocol, matches helpers.h)
 // ============================================================
-// Sends own theta, receives partner's theta.
+// Encodes theta as int(theta_rad * 100000) — same as Hapkit template.
+// Sends 2 bytes, receives 2 bytes. No ASCII parsing, no timeouts.
 //
-// THE BUG FIX: previously parseFloat() returned 0 on timeout and
-// silently overwrote theta_partner_rad. Now we only update it if
-// the parsed value is a reasonable angle (between -2*PI and 2*PI,
-// roughly -360° to +360°), and we keep the "partner_received" flag
-// so FK doesn't run on stale/default data.
+// Union trick: lets us treat the same 2 bytes as either an int or
+// a byte array — same pattern as helpers.h BinaryIntUnion.
+typedef union {
+  int integer;
+  byte binary[2];
+} ThetaUnion;
+
+ThetaUnion theta_self_binary;
+ThetaUnion theta_partner_binary;
+
+// Board 1 starts as SENDER, Board 5 starts as RECEIVER
+#ifdef IS_MOTOR_1
+  bool link_sending   = true;   // Board 1 sends first
+  bool link_receiving = false;
+#else
+  bool link_sending   = false;  // Board 5 waits first
+  bool link_receiving = true;
+#endif
+
 void handleSerialLink(float theta_self) {
-  // --- Send own theta (rate-limited: every 20 loops) ---
-  static int txCounter = 0;
-  if (++txCounter >= 5) {
-    linkSerial.print("A");
-    linkSerial.println(theta_self, 4);
-    txCounter = 0;
+  // --- SEND our theta ---
+  if (link_sending && linkSerial.availableForWrite() >= 2) {
+    theta_self_binary.integer = int(theta_self * 100000.0f);
+    linkSerial.write(theta_self_binary.binary, 2);
+    linkSerial.flush();
+    link_sending   = false;
+    link_receiving = true;
   }
 
-  // --- Receive partner's theta ---
-  while (linkSerial.available()) {
-    char c = (char)linkSerial.read();
-    if (c == 'A') {
-      float val = linkSerial.parseFloat();
+  // --- RECEIVE partner's theta ---
+  if (link_receiving && linkSerial.available() >= 2) {
+    float previous = theta_partner_rad;
+    linkSerial.readBytes(theta_partner_binary.binary, 2);
+    float val = (float)theta_partner_binary.integer / 100000.0f;
 
-      // Only accept values in a plausible angle range (-2pi to +2pi).
-      // This guards against parseFloat() returning 0 on timeout.
-      if (val > -3.2f && val < 3.2f && val != 0.0f) {     
-        theta_partner_rad = val;                      
+    // Sanity checks — same as helpers.h isnan check + our range check
+    if (!isnan(val) && val > -3.2f && val < 3.2f) {
+      // Rate of change check — reject physically impossible jumps
+      float delta = fabsf(val - previous);
+      if (delta < 0.1f || !partner_received) {
+        theta_partner_rad = val;
         partner_received  = true;
       }
-
-      // Consume trailing newline
-      while (linkSerial.available() &&
-             (linkSerial.peek() == '\n' || linkSerial.peek() == '\r')) {
-        linkSerial.read();
-      }
+    } else {
+      // Bad packet — keep previous value
+      theta_partner_rad = previous;
     }
+
+    link_sending   = true;
+    link_receiving = false;
   }
 }
-
 // --------------------------------------------------------------
 // Function to set PWM Freq -- DO NOT EDIT
 // Copied from A3/A4 Hapkit template.

@@ -330,7 +330,6 @@ int computeMotorOutputPWM(float Fx, float Fy,
 void setup() {
   Serial.begin(115200);
   linkSerial.begin(19200);
-  linkSerial.setTimeout(10);
 
   // High PWM frequency for smooth motor torque (matches A3/A4 Hapkit templates).
   // CAUTION: this changes Timer 0 prescaler /64 -> /1, so millis(), micros(),
@@ -593,43 +592,61 @@ void getPenTipPosition(float &x, float &y, float theta_self) {
 }
 
 // ============================================================
-// INTER-BOARD SERIAL LINK
+// INTER-BOARD SERIAL LINK  (binary protocol, matches helpers.h)
 // ============================================================
-// Sends own theta, receives partner's theta.
+// Encodes theta as int(theta_rad * 100000) — same as Hapkit template.
+// Sends 2 bytes, receives 2 bytes. No ASCII parsing, no timeouts.
 //
-// THE BUG FIX: previously parseFloat() returned 0 on timeout and
-// silently overwrote theta_partner_rad. Now we only update it if
-// the parsed value is a reasonable angle (between -2*PI and 2*PI,
-// roughly -360° to +360°), and we keep the "partner_received" flag
-// so FK doesn't run on stale/default data.
+// Union trick: lets us treat the same 2 bytes as either an int or
+// a byte array — same pattern as helpers.h BinaryIntUnion.
+typedef union {
+  int integer;
+  byte binary[2];
+} ThetaUnion;
+
+ThetaUnion theta_self_binary;
+ThetaUnion theta_partner_binary;
+
+// Board 1 starts as SENDER, Board 5 starts as RECEIVER
+#ifdef IS_MOTOR_1
+  bool link_sending   = true;   // Board 1 sends first
+  bool link_receiving = false;
+#else
+  bool link_sending   = false;  // Board 5 waits first
+  bool link_receiving = true;
+#endif
+
 void handleSerialLink(float theta_self) {
-  // --- Send own theta (rate-limited: every 20 loops) ---
-  static int txCounter = 0;
-  if (++txCounter >= 5) {
-    linkSerial.print("A");
-    linkSerial.println(theta_self, 4);
-    txCounter = 0;
+  // --- SEND our theta ---
+  if (link_sending && linkSerial.availableForWrite() >= 2) {
+    theta_self_binary.integer = int(theta_self * 100000.0f);
+    linkSerial.write(theta_self_binary.binary, 2);
+    linkSerial.flush();
+    link_sending   = false;
+    link_receiving = true;
   }
 
-  // --- Receive partner's theta ---
-  while (linkSerial.available()) {
-    char c = (char)linkSerial.read();
-    if (c == 'A') {
-      float val = linkSerial.parseFloat();
+  // --- RECEIVE partner's theta ---
+  if (link_receiving && linkSerial.available() >= 2) {
+    float previous = theta_partner_rad;
+    linkSerial.readBytes(theta_partner_binary.binary, 2);
+    float val = (float)theta_partner_binary.integer / 100000.0f;
 
-      // Only accept values in a plausible angle range (-2pi to +2pi).
-      // This guards against parseFloat() returning 0 on timeout.
-      if (val > -3.2f && val < 3.2f && val != 0.0f) {     
-        theta_partner_rad = val;                      
+    // Sanity checks — same as helpers.h isnan check + our range check
+    if (!isnan(val) && val > -3.2f && val < 3.2f) {
+      // Rate of change check — reject physically impossible jumps
+      float delta = fabsf(val - previous);
+      if (delta < 0.1f || !partner_received) {
+        theta_partner_rad = val;
         partner_received  = true;
       }
-
-      // Consume trailing newline
-      while (linkSerial.available() &&
-             (linkSerial.peek() == '\n' || linkSerial.peek() == '\r')) {
-        linkSerial.read();
-      }
+    } else {
+      // Bad packet — keep previous value
+      theta_partner_rad = previous;
     }
+
+    link_sending   = true;
+    link_receiving = false;
   }
 }
 

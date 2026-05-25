@@ -640,8 +640,8 @@ void handleSerialLink(float theta_self) {
 
       // Only accept values in a plausible angle range (-2pi to +2pi).
       // This guards against parseFloat() returning 0 on timeout.
-      if (val > -3.2f && val < 3.2f && val != 0.0f) {
-        theta_partner_rad = val;
+      if (val > -3.2f && val < 3.2f && val != 0.0f) {      
+        theta_partner_rad = val;                       
         partner_received  = true;
       }
 
