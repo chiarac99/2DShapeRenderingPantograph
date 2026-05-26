@@ -144,9 +144,21 @@ float distSqToSegment(float px, float py,
   return dx*dx + dy*dy;
 }
 
-float findNearestPointOnPolygon(float px, float py, float &nx, float &ny) {
-  float best_d2 = 1e30f;
-  float best_nx = px, best_ny = py;
+// Find the TWO nearest points on the polygon boundary.
+// Used by computeForce to blend forces from the two nearest edges,
+// which smooths out direction discontinuities at corner bisectors.
+//
+// Outputs:
+//   nx1, ny1, d2_1 = nearest point and its squared distance
+//   nx2, ny2, d2_2 = second-nearest point and its squared distance
+// If the polygon has fewer than 2 edges (shouldn't happen), the second
+// is set equal to the first.
+void findTwoNearestOnPolygon(float px, float py,
+                              float &nx1, float &ny1, float &d2_1,
+                              float &nx2, float &ny2, float &d2_2) {
+  d2_1 = 1e30f;  d2_2 = 1e30f;
+  nx1 = px;      ny1 = py;
+  nx2 = px;      ny2 = py;
 
   for (int i = 0; i < SHAPE_N; i++) {
     int j = (i + 1) % SHAPE_N;
@@ -155,16 +167,22 @@ float findNearestPointOnPolygon(float px, float py, float &nx, float &ny) {
                                SHAPE_PTS[i][0], SHAPE_PTS[i][1],
                                SHAPE_PTS[j][0], SHAPE_PTS[j][1],
                                seg_nx, seg_ny);
-    if (d2 < best_d2) {
-      best_d2 = d2;
-      best_nx = seg_nx;
-      best_ny = seg_ny;
+    if (d2 < d2_1) {
+      // Demote previous best to second, then update best.
+      d2_2 = d2_1; nx2 = nx1; ny2 = ny1;
+      d2_1 = d2;   nx1 = seg_nx; ny1 = seg_ny;
+    } else if (d2 < d2_2) {
+      d2_2 = d2;   nx2 = seg_nx; ny2 = seg_ny;
     }
   }
+}
 
-  nx = best_nx;
-  ny = best_ny;
-  return best_d2;
+// Convenience wrapper for code that only needs ONE nearest point.
+// (Kept for any other callers; not used by computeForce anymore.)
+float findNearestPointOnPolygon(float px, float py, float &nx, float &ny) {
+  float nx2, ny2, d2_1, d2_2;
+  findTwoNearestOnPolygon(px, py, nx, ny, d2_1, nx2, ny2, d2_2);
+  return d2_1;
 }
 
 bool pointInPolygon(float px, float py) {
@@ -190,10 +208,28 @@ void computeForce(float xh, float yh, float &Fx, float &Fy) {
     Fy = 0.0f;
     return;
   }
-  float nx, ny;
-  findNearestPointOnPolygon(xh, yh, nx, ny);
-  Fx = K_WALL * (nx - xh);
-  Fy = K_WALL * (ny - yh);
+
+  // Inside: find the two nearest edges and blend their restoring forces
+  // by inverse-square weighting. This smooths the 90° direction snap
+  // that would otherwise occur on a corner's bisector.
+  float nx1, ny1, d2_1, nx2, ny2, d2_2;
+  findTwoNearestOnPolygon(xh, yh, nx1, ny1, d2_1, nx2, ny2, d2_2);
+
+  // Per-edge restoring force vectors (each pushes toward its nearest pt).
+  float F1x = K_WALL * (nx1 - xh);
+  float F1y = K_WALL * (ny1 - yh);
+  float F2x = K_WALL * (nx2 - xh);
+  float F2y = K_WALL * (ny2 - yh);
+
+  // Inverse-square weights. Add a tiny epsilon to avoid divide-by-zero
+  // when the pen is exactly on a boundary point.
+  const float EPS = 1e-9f;
+  float w1 = 1.0f / (d2_1 + EPS);
+  float w2 = 1.0f / (d2_2 + EPS);
+  float wsum = w1 + w2;
+
+  Fx = (w1 * F1x + w2 * F2x) / wsum;
+  Fy = (w1 * F1y + w2 * F2y) / wsum;
 }
 
 // ============================================================
