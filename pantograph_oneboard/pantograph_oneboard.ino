@@ -90,8 +90,8 @@ const bool  FORCE_OUTPUT_ENABLED = true;
 // ============================================================
 const int   SHAPE_N = 4;
 const float SHAPE_PTS[SHAPE_N][2] = {
-  { -0.03f, 0.07f },
-  {  0.03f, 0.07f },
+  { -0.03f, 0.085f },
+  {  0.03f, 0.085f },
   {  0.03f, 0.13f },
   { -0.03f, 0.13f }
 };
@@ -429,8 +429,8 @@ void loop() {
       digitalWrite(DIR_PIN_M1, LOW);
       Serial.println("# FORCE OUTPUT KILLED by serial input.");
     } else {
-      digitalWrite(DIR_PIN_M5, dir_M5 ? HIGH : LOW);
-      digitalWrite(DIR_PIN_M1, dir_M1 ? HIGH : LOW);
+      digitalWrite(DIR_PIN_M5, dir_M5 ? LOW : HIGH);
+      digitalWrite(DIR_PIN_M1, dir_M1 ? LOW : HIGH);
       analogWrite(PWM_PIN_M5, pwm_M5);
       analogWrite(PWM_PIN_M1, pwm_M1);
     }

@@ -330,7 +330,7 @@ int computeMotorOutputPWM(float Fx, float Fy,
 void setup() {
   Serial.begin(115200);
   linkSerial.begin(19200);
-  linkSerial.setTimeout(10);
+  // linkSerial.setTimeout(10);
 
   // High PWM frequency for smooth motor torque (matches A3/A4 Hapkit templates).
   // CAUTION: this changes Timer 0 prescaler /64 -> /1, so millis(), micros(),
@@ -603,7 +603,7 @@ void getPenTipPosition(float &x, float &y, float theta_self) {
 // roughly -360° to +360°), and we keep the "partner_received" flag
 // so FK doesn't run on stale/default data.
 void handleSerialLink(float theta_self) {
-  // --- Send own theta (rate-limited: every 20 loops) ---
+  // Send own theta every 5 loops
   static int txCounter = 0;
   if (++txCounter >= 5) {
     linkSerial.print("A");
@@ -611,28 +611,29 @@ void handleSerialLink(float theta_self) {
     txCounter = 0;
   }
 
-  // --- Receive partner's theta ---
+  // Non-blocking receive — accumulate chars until newline
+  static char buf[12];
+  static int  bufIdx = 0;
+
   while (linkSerial.available()) {
     char c = (char)linkSerial.read();
-    if (c == 'A') {
-      float val = linkSerial.parseFloat();
-
-      // Only accept values in a plausible angle range (-2pi to +2pi).
-      // This guards against parseFloat() returning 0 on timeout.
-      if (val > -3.2f && val < 3.2f && val != 0.0f) {     
-        theta_partner_rad = val;                      
-        partner_received  = true;
+    if (c == '\n') {
+      buf[bufIdx] = '\0';  // null terminate
+      if (bufIdx > 1 && buf[0] == 'A') {
+        float val = atof(buf + 1);  // parse after 'A'
+        if (val > -3.2f && val < 3.2f && val != 0.0f) {
+          theta_partner_rad = val;
+          partner_received  = true;
+        }
       }
-
-      // Consume trailing newline
-      while (linkSerial.available() &&
-             (linkSerial.peek() == '\n' || linkSerial.peek() == '\r')) {
-        linkSerial.read();
-      }
+      bufIdx = 0;  // reset buffer for next packet
+    } else if (bufIdx < 11) {
+      buf[bufIdx++] = c;  // accumulate character
+    } else {
+      bufIdx = 0;  // buffer overflow — discard
     }
   }
 }
-
 // --------------------------------------------------------------
 // Function to set PWM Freq -- DO NOT EDIT
 // Copied from A3/A4 Hapkit template.
