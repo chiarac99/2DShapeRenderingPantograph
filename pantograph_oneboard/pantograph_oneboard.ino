@@ -59,6 +59,13 @@ const float ENC_B_M5 =  95.5f;
 const float SECTOR_GEAR_REDUCTION = 1.0f;
 
 // ============================================================
+// VELOCITY TRACKING 
+// ============================================================
+float xh_prev = 0.0f, yh_prev = 0.0f;
+float vx_filt = 0.0f, vy_filt = 0.0f;
+const float DT_LOOP = 0.001f;
+
+// ============================================================
 // MOTOR TEST MODE (legacy, leave disabled)
 // ============================================================
 const bool MOTOR_TEST_ENABLED      = false;
@@ -75,7 +82,7 @@ bool force_killed = false;
 // ============================================================
 // FORCE MODEL (unchanged)
 // ============================================================
-const float K_WALL = 30.0f;
+const float K_WALL = 10.0f;
 
 // ============================================================
 // MOTOR DRIVE CONSTANTS (unchanged)
@@ -88,12 +95,27 @@ const bool  FORCE_OUTPUT_ENABLED = true;
 // ============================================================
 // SHAPE — 6 cm × 6 cm square centered at (0, 0.10)
 // ============================================================
+// // ----- square, 10 pts, CCW -----
+// const int SHAPE_N = 10;
+// const float SHAPE_PTS[SHAPE_N][2] = {
+//     { -0.03500f,  0.03500f},
+//     { -0.03500f,  0.00179f},
+//     { -0.03500f, -0.03142f},
+//     { -0.01167f, -0.03500f},
+//     {  0.02154f, -0.03500f},
+//     {  0.03500f, -0.02154f},
+//     {  0.03500f,  0.01167f},
+//     {  0.03142f,  0.03500f},
+//     { -0.00179f,  0.03500f},
+//     { -0.03500f,  0.03500f}
+// };
+
 const int   SHAPE_N = 4;
 const float SHAPE_PTS[SHAPE_N][2] = {
-  { -0.03f, 0.085f },
-  {  0.03f, 0.085f },
-  {  0.03f, 0.13f },
-  { -0.03f, 0.13f }
+  { -0.03f, 0.07f },   // bottom-left
+  {  0.03f, 0.07f },   // bottom-right
+  {  0.03f, 0.13f },   // top-right
+  { -0.03f, 0.13f }    // top-left
 };
 
 // ============================================================
@@ -201,6 +223,27 @@ bool pointInPolygon(float px, float py) {
 // ============================================================
 // FORCE COMPUTATION (unchanged)
 // ============================================================
+
+// void computeForce(float xh, float yh, float &Fx, float &Fy) {
+//   // Inside the polygon? No force (this is the "interior" — pen moves freely).
+//   if (pointInPolygon(xh, yh)) {
+//     Fx = 0.0f;
+//     Fy = 0.0f;
+//     return;
+//   }
+
+//   // Outside: find the nearest point on the polygon boundary,
+//   // then apply spring force pulling pen back toward it.
+//   float nx, ny;
+//   findNearestPointOnPolygon(xh, yh, nx, ny);
+//   Fx = K_WALL * (nx - xh);
+//   Fy = K_WALL * (ny - yh);
+
+//   Fx -= B_WALL * vx_filt;
+//   Fy -= B_WALL * vy_filt;
+// }
+
+const float B_WALL = 0.5f;
 void computeForce(float xh, float yh, float &Fx, float &Fy) {
   // Outside the polygon = free space, no force.
   if (!pointInPolygon(xh, yh)) {
@@ -216,10 +259,10 @@ void computeForce(float xh, float yh, float &Fx, float &Fy) {
   findTwoNearestOnPolygon(xh, yh, nx1, ny1, d2_1, nx2, ny2, d2_2);
 
   // Per-edge restoring force vectors (each pushes toward its nearest pt).
-  float F1x = K_WALL * (nx1 - xh);
-  float F1y = K_WALL * (ny1 - yh);
-  float F2x = K_WALL * (nx2 - xh);
-  float F2y = K_WALL * (ny2 - yh);
+  float F1x = K_WALL * (nx1 - xh) ;
+  float F1y = K_WALL * (ny1 - yh) ;
+  float F2x = K_WALL * (nx2 - xh) ;
+  float F2y = K_WALL * (ny2 - yh) ;
 
   // Inverse-square weights. Add a tiny epsilon to avoid divide-by-zero
   // when the pen is exactly on a boundary point.
@@ -228,8 +271,12 @@ void computeForce(float xh, float yh, float &Fx, float &Fy) {
   float w2 = 1.0f / (d2_2 + EPS);
   float wsum = w1 + w2;
 
-  Fx = (w1 * F1x + w2 * F2x) / wsum;
-  Fy = (w1 * F1y + w2 * F2y) / wsum;
+  Fx = ((w1 * F1x + w2 * F2x) / wsum);
+  Fy = ((w1 * F1y + w2 * F2y) / wsum);
+
+//uncomment for damping
+  // Fx = ((w1 * F1x + w2 * F2x) / wsum) - B_WALL * vx_filt;
+  // Fy = ((w1 * F1y + w2 * F2y) / wsum) - B_WALL * vy_filt;
 }
 
 // ============================================================
@@ -306,7 +353,9 @@ void getPenTipPosition(float &x, float &y, float theta1, float theta5) {
   }
   x = xh_persist;
   y = yh_persist;
+
 }
+
 
 // ============================================================
 // JACOBIAN + MOTOR OUTPUT
@@ -404,6 +453,14 @@ void loop() {
   // 2. Compute pen-tip position from both thetas.
   float xh, yh;
   getPenTipPosition(xh, yh, theta1, theta5);
+
+  // // 3. Update velocity (must be AFTER position is computed)
+  // float vx = (xh - xh_prev) / DT_LOOP;
+  // float vy = (yh - yh_prev) / DT_LOOP;
+  // vx_filt = 0.1f * vx_filt + 0.9f * vx;
+  // vy_filt = 0.1f * vy_filt + 0.9f * vy;
+  // xh_prev = xh;
+  // yh_prev = yh;
 
   // 3. Compute Cartesian force.
   float Fx, Fy;
