@@ -6,7 +6,6 @@ import processing.serial.*;
 boolean STANDALONE_MODE = false;
 Serial[] arduinoPorts = new Serial[0];
 boolean TEST = true; // 0=off, 1=on — draws a test square + pen tip only
-int TEST_SHAPE_ID = 4; // whichever shape ID is the square in your db
 
 // ---------- SERIAL ----------
 Serial arduinoPort = null;
@@ -44,7 +43,7 @@ float LAMBDA_TEX   = 0.0020f;
 // Data is retrieved from saved csv files.
 
 ShapeRecord currentShape;
-int shapeId= 1; // 1, 2 and 3
+int shapeId= 5; // 1, 2 and 3
 int lastShapeId = -1;
 PShape baseSVG;
 float[][] points;

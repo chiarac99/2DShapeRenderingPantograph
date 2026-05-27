@@ -526,7 +526,7 @@ def main():
     stem = args.input_svg.stem
     shape_name = stem.replace("_outline", "")  # bunny_outline -> bunny
     out_ino = output.with_name(f"{stem}_arduino.h.txt")
-    out_pde = output.with_name(f"{stem}_processing.txt")
+    # out_pde = output.with_name(f"{stem}_processing.txt")
     out_ino.write_text(emit_arduino_c(shape_name, norm_pts))
     out_pde.write_text(emit_processing_java(shape_name, norm_pts))
     print(f"Saved Arduino fragment -> {out_ino}")
