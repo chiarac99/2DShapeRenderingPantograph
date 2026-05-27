@@ -269,9 +269,10 @@ void setShape(int id) {
   // Tell Arduino too, if connected.
   // Tell Arduino too, if connected.
   char cmd = 0;
-  if      (shapeId == 0) cmd = 'B';
-  else if (shapeId == 1) cmd = 'H';
-  else if (shapeId == 2) cmd = 'P';
+  if      (shapeId == 5) cmd = 'F';
+  else if (shapeId == 6) cmd = 'D';
+  else if (shapeId == 7) cmd = 'B';
+  else if (shapeId == 8) cmd = 'E'; // bell had to be 'E' bc we have banana as 'B'
 
   if (cmd != 0) {
     for (Serial p : arduinoPorts) p.write(cmd);

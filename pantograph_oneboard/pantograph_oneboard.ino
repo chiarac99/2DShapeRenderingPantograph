@@ -122,83 +122,83 @@ const bool  FORCE_OUTPUT_ENABLED = true;
 // SHAPE — 6 cm × 6 cm square centered at (0, 0.10)
 // ============================================================
 // ----- duck, 50 pts, CCW -----
-// const int SHAPE_N = 20;
-// const float SHAPE_PTS[SHAPE_N][2] PROGMEM = {
-//     { -0.00800f,  0.04611f},
-//     { -0.05000f,  0.02110f},
-//     { -0.04673f, -0.02139f},
-//     { -0.04344f, -0.02426f},
-//     { -0.03949f, -0.02062f},
-//     { -0.00964f, -0.00535f},
-//     {  0.00176f, -0.00880f},
-//     {  0.00143f, -0.01145f},
-//     { -0.00922f, -0.02893f},
-//     { -0.00278f, -0.04611f},
-//     {  0.02506f, -0.04539f},
-//     {  0.03691f, -0.03146f},
-//     {  0.04921f, -0.03059f},
-//     {  0.05000f, -0.02927f},
-//     {  0.04529f, -0.01986f},
-//     {  0.03294f, -0.01619f},
-//     {  0.03059f, -0.01162f},
-//     {  0.04502f,  0.00585f},
-//     {  0.04302f,  0.02963f},
-//     { -0.00800f,  0.04611f}
-// };
+const int DUCK_N = 20;
+const float DUCK_PTS[DUCK_N][2] PROGMEM = {
+    { -0.00800f,  0.04611f},
+    { -0.05000f,  0.02110f},
+    { -0.04673f, -0.02139f},
+    { -0.04344f, -0.02426f},
+    { -0.03949f, -0.02062f},
+    { -0.00964f, -0.00535f},
+    {  0.00176f, -0.00880f},
+    {  0.00143f, -0.01145f},
+    { -0.00922f, -0.02893f},
+    { -0.00278f, -0.04611f},
+    {  0.02506f, -0.04539f},
+    {  0.03691f, -0.03146f},
+    {  0.04921f, -0.03059f},
+    {  0.05000f, -0.02927f},
+    {  0.04529f, -0.01986f},
+    {  0.03294f, -0.01619f},
+    {  0.03059f, -0.01162f},
+    {  0.04502f,  0.00585f},
+    {  0.04302f,  0.02963f},
+    { -0.00800f,  0.04611f}
+};
 
 // ----- bell, 20 pts, CCW -----
-// const int SHAPE_N = 20;
-// const float SHAPE_PTS[SHAPE_N][2] PROGMEM = {
-//     { -0.00000f, -0.05000f},
-//     {  0.00902f, -0.04267f},
-//     {  0.00730f, -0.03493f},
-//     {  0.00733f, -0.03477f},
-//     {  0.02088f, -0.02680f},
-//     {  0.03676f,  0.01834f},
-//     {  0.04516f,  0.03429f},
-//     {  0.03288f,  0.04239f},
-//     {  0.01120f,  0.04253f},
-//     {  0.00755f,  0.05000f},
-//     { -0.00755f,  0.05000f},
-//     { -0.01120f,  0.04253f},
-//     { -0.03288f,  0.04239f},
-//     { -0.04516f,  0.03429f},
-//     { -0.03676f,  0.01834f},
-//     { -0.02088f, -0.02680f},
-//     { -0.00733f, -0.03477f},
-//     { -0.00730f, -0.03493f},
-//     { -0.00902f, -0.04267f},
-//     { -0.00000f, -0.05000f}
-// };
+const int BELL_N = 20;
+const float BELL_PTS[BELL_N][2] PROGMEM = {
+    { -0.00000f, -0.05000f},
+    {  0.00902f, -0.04267f},
+    {  0.00730f, -0.03493f},
+    {  0.00733f, -0.03477f},
+    {  0.02088f, -0.02680f},
+    {  0.03676f,  0.01834f},
+    {  0.04516f,  0.03429f},
+    {  0.03288f,  0.04239f},
+    {  0.01120f,  0.04253f},
+    {  0.00755f,  0.05000f},
+    { -0.00755f,  0.05000f},
+    { -0.01120f,  0.04253f},
+    { -0.03288f,  0.04239f},
+    { -0.04516f,  0.03429f},
+    { -0.03676f,  0.01834f},
+    { -0.02088f, -0.02680f},
+    { -0.00733f, -0.03477f},
+    { -0.00730f, -0.03493f},
+    { -0.00902f, -0.04267f},
+    { -0.00000f, -0.05000f}
+};
 
 // //----- banana, 20 pts, CCW -----
-// const int SHAPE_N = 20;
-// const float SHAPE_PTS[SHAPE_N][2] PROGMEM = {
-//     { -0.04365f, -0.03519f},
-//     { -0.03862f, -0.03620f},
-//     { -0.03224f, -0.03317f},
-//     { -0.03160f, -0.03108f},
-//     { -0.03320f, -0.02556f},
-//     { -0.02664f, -0.00755f},
-//     { -0.01193f,  0.00329f},
-//     {  0.04736f,  0.00977f},
-//     {  0.05000f,  0.01311f},
-//     {  0.04948f,  0.01979f},
-//     {  0.04044f,  0.02971f},
-//     { -0.00056f,  0.03620f},
-//     { -0.03360f,  0.02368f},
-//     { -0.05000f, -0.00258f},
-//     { -0.04891f, -0.01417f},
-//     { -0.04293f, -0.01954f},
-//     { -0.04253f, -0.02025f},
-//     { -0.04168f, -0.03119f},
-//     { -0.04389f, -0.03340f},
-//     { -0.04365f, -0.03519f}
-// };
+const int BANANA_N = 20;
+const float BANANA_PTS[BANANA_N][2] PROGMEM = {
+    { -0.04365f, -0.03519f},
+    { -0.03862f, -0.03620f},
+    { -0.03224f, -0.03317f},
+    { -0.03160f, -0.03108f},
+    { -0.03320f, -0.02556f},
+    { -0.02664f, -0.00755f},
+    { -0.01193f,  0.00329f},
+    {  0.04736f,  0.00977f},
+    {  0.05000f,  0.01311f},
+    {  0.04948f,  0.01979f},
+    {  0.04044f,  0.02971f},
+    { -0.00056f,  0.03620f},
+    { -0.03360f,  0.02368f},
+    { -0.05000f, -0.00258f},
+    { -0.04891f, -0.01417f},
+    { -0.04293f, -0.01954f},
+    { -0.04253f, -0.02025f},
+    { -0.04168f, -0.03119f},
+    { -0.04389f, -0.03340f},
+    { -0.04365f, -0.03519f}
+};
 
 // //----- fish, 20 pts, CCW -----
-const int SHAPE_N = 20;
-const float SHAPE_PTS[SHAPE_N][2] PROGMEM = {
+const int FISH_N = 20;
+const float FISH_PTS[FISH_N][2] PROGMEM = {
     { -0.05000f, -0.00048f},
     { -0.03185f, -0.01907f},
     {  0.00304f, -0.02172f},
@@ -222,10 +222,16 @@ const float SHAPE_PTS[SHAPE_N][2] PROGMEM = {
 };
 
 
-inline float shapeX(int i) { return pgm_read_float(&SHAPE_PTS[i][0]); }
-inline float shapeY(int i) { return pgm_read_float(&SHAPE_PTS[i][1]) + 0.10f; }
+const float (*activeShape)[2] = FISH_PTS;
+int activeShapeN = FISH_N;
 
+inline float shapeX(int i) {
+  return pgm_read_float(&activeShape[i][0]);
+}
 
+inline float shapeY(int i) {
+  return pgm_read_float(&activeShape[i][1]) + 0.10f;
+}
 
 // ============================================================
 // ENCODER STATE — TWO COPIES, one per sensor
@@ -283,8 +289,8 @@ void findTwoNearestOnPolygon(float px, float py,
   nx1 = px;      ny1 = py;
   nx2 = px;      ny2 = py;
 
-  for (int i = 0; i < SHAPE_N; i++) {
-    int j = (i + 1) % SHAPE_N;
+  for (int i = 0; i < activeShapeN; i++) {
+    int j = (i + 1) % activeShapeN;
     float seg_nx, seg_ny;
   float d2 = distSqToSegment(px, py,
                            shapeX(i), shapeY(i),
@@ -310,7 +316,7 @@ float findNearestPointOnPolygon(float px, float py, float &nx, float &ny) {
 
 bool pointInPolygon(float px, float py) {
   bool inside = false;
-  for (int i = 0, j = SHAPE_N - 1; i < SHAPE_N; j = i++) {
+  for (int i = 0, j = activeShapeN - 1; i < activeShapeN; j = i++) {
     float xi = shapeX(i), yi = shapeY(i);
     float xj = shapeX(j), yj = shapeY(j);
 
@@ -729,28 +735,40 @@ void loop() {
   pwm_M1 = computeMotorOutputPWM(Fx, Fy, theta1, theta5, 1, tau_M1, duty_M1, dir_M1);
   pwm_M5 = computeMotorOutputPWM(Fx, Fy, theta1, theta5, 5, tau_M5, duty_M5, dir_M5);
 
-  // 5. Apply forces to BOTH motors. Any USB Serial input kills both.
-  if (FORCE_OUTPUT_ENABLED && !force_killed && !motor_killed && !motor_test_started) {
-    if (Serial.available()) {
-      while (Serial.available()) Serial.read();
+// 5. Apply forces to BOTH motors. Serial now used for commands (NOT auto-kill)
+if (FORCE_OUTPUT_ENABLED && !force_killed && !motor_killed && !motor_test_started) {
+
+  // --- read ALL incoming serial commands ---
+  while (Serial.available()) {
+    char c = Serial.read();
+
+    // (A) safety kill switch
+    if (c == 'X' || c == 'x') {
       force_killed = true;
+
       analogWrite(PWM_PIN_M5, 0);
       analogWrite(PWM_PIN_M1, 0);
       digitalWrite(DIR_PIN_M5, LOW);
       digitalWrite(DIR_PIN_M1, LOW);
-      Serial.println("# FORCE OUTPUT KILLED by serial input.");
-    } else {
-      digitalWrite(DIR_PIN_M5, dir_M5 ? LOW : HIGH);
-      digitalWrite(DIR_PIN_M1, dir_M1 ? LOW : HIGH);
-      analogWrite(PWM_PIN_M5, pwm_M5);
-      analogWrite(PWM_PIN_M1, pwm_M1);
+
+      Serial.println("# FORCE OUTPUT KILLED");
     }
-  } else {
-    analogWrite(PWM_PIN_M5, 0);
-    analogWrite(PWM_PIN_M1, 0);
+
+    // (B) shape switching
+    setShape(c);
   }
 
-  // 6. CSV output for Processing GUI — same format as before.
+  // --- motor output still runs normally ---
+  digitalWrite(DIR_PIN_M5, dir_M5 ? LOW : HIGH);
+  digitalWrite(DIR_PIN_M1, dir_M1 ? LOW : HIGH);
+  analogWrite(PWM_PIN_M5, pwm_M5);
+  analogWrite(PWM_PIN_M1, pwm_M1);
+
+} else {
+  analogWrite(PWM_PIN_M5, 0);
+  analogWrite(PWM_PIN_M1, 0);
+}
+  // // 6. CSV output for Processing GUI — same format as before.
   static int csvCounter = 0;
   if (++csvCounter >= 5) {
     Serial.print(xh, 4);
@@ -822,5 +840,38 @@ void setPwmFrequency(int pin, int divisor) {
       default: return;
     }
     TCCR2B = TCCR2B & 0b11111000 | mode;
+  }
+}
+
+void setShape(char c) {
+  switch (c) {
+
+    case 'F':
+    case 'f':
+      activeShape = FISH_PTS;
+      activeShapeN = FISH_N;
+      Serial.println("# shape: fish");
+      break;
+
+    case 'B':
+    case 'b':
+      activeShape = BANANA_PTS;
+      activeShapeN = BANANA_N;
+      Serial.println("# shape: banana");
+      break;
+
+    case 'D':
+    case 'd':
+      activeShape = DUCK_PTS;
+      activeShapeN = DUCK_N;
+      Serial.println("# shape: duck");
+      break;
+
+    case 'E':
+    case 'e':
+      activeShape = BELL_PTS;
+      activeShapeN = BELL_N;
+      Serial.println("# shape: bell");
+      break;
   }
 }
