@@ -5,7 +5,7 @@ import processing.serial.*;
 // ---------- MODE SELECTION ----------
 boolean STANDALONE_MODE = false;
 Serial[] arduinoPorts = new Serial[0];
-boolean TEST = true; // 0=off, 1=on — draws a test square + pen tip only
+boolean TEST = false; // 0=off, 1=on — draws a test square + pen tip only
 int TEST_SHAPE_ID = 4; // whichever shape ID is the square in your db
 
 // ---------- SERIAL ----------
@@ -181,8 +181,8 @@ void drawGuessScreen(){
 
 void drawResultsScreen(){
   // update user position
-  float xh = arduinoFx - WORKSPACE_CENTER_X;
-  float yh = arduinoFy - WORKSPACE_CENTER_Y;
+  float xh = -(arduinoFx - WORKSPACE_CENTER_X);
+  float yh = -(arduinoFy - WORKSPACE_CENTER_Y);
 
   // draw user
   drawPenTip(xh, yh);
@@ -239,7 +239,7 @@ float[][] loadCoordinates(String filename) {
         float rawX = Float.parseFloat(parts[0].trim());
         float rawY = Float.parseFloat(parts[1].trim());
         pts[idx][0] = meterToPixelX(rawX);
-        pts[idx][1] = meterToPixelY(rawY);
+        pts[idx][1] = meterToPixelY(rawY + 0.10f);
         idx++;
       } catch (NumberFormatException e) {}
     }

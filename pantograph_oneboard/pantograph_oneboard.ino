@@ -22,6 +22,23 @@
 // ============================================================
 
 #include <math.h>
+#include <avr/pgmspace.h>
+
+struct EncoderState {
+  int  rawPos, lastRawPos, lastLastRawPos;
+  int  rawDiff, lastRawDiff;
+  int  rawOffset, lastRawOffset;
+  int  flipNumber, tempOffset;
+  bool flipped;
+  int  updatedPos;
+};
+
+// ============================================================
+// GLOBAL VARIABLES
+// ============================================================
+
+float proxy_x = 0.0f;
+float proxy_y = 0.0f;
 
 // ============================================================
 // LINK LENGTHS [meters] — unchanged from previous firmware
@@ -82,7 +99,7 @@ bool force_killed = false;
 // ============================================================
 // FORCE MODEL (unchanged)
 // ============================================================
-const float K_WALL = 10.0f;
+const float K_WALL = 70.0f;
 
 // ============================================================
 // MOTOR DRIVE CONSTANTS (unchanged)
@@ -95,41 +112,117 @@ const bool  FORCE_OUTPUT_ENABLED = true;
 // ============================================================
 // SHAPE — 6 cm × 6 cm square centered at (0, 0.10)
 // ============================================================
-// // ----- square, 10 pts, CCW -----
-// const int SHAPE_N = 10;
-// const float SHAPE_PTS[SHAPE_N][2] = {
-//     { -0.03500f,  0.03500f},
-//     { -0.03500f,  0.00179f},
-//     { -0.03500f, -0.03142f},
-//     { -0.01167f, -0.03500f},
-//     {  0.02154f, -0.03500f},
-//     {  0.03500f, -0.02154f},
-//     {  0.03500f,  0.01167f},
-//     {  0.03142f,  0.03500f},
-//     { -0.00179f,  0.03500f},
-//     { -0.03500f,  0.03500f}
+// ----- pear, 50 pts, CCW -----
+const int SHAPE_N = 50;
+const float SHAPE_PTS[SHAPE_N][2] PROGMEM = {
+    { -0.00373f,  0.04904f},
+    { -0.00655f,  0.05000f},
+    { -0.02074f,  0.04952f},
+    { -0.02145f,  0.04928f},
+    { -0.02171f,  0.04905f},
+    { -0.02184f,  0.04876f},
+    { -0.02185f,  0.04813f},
+    { -0.01825f,  0.04004f},
+    { -0.01478f,  0.03592f},
+    { -0.01109f,  0.03393f},
+    { -0.00744f,  0.03350f},
+    { -0.00404f,  0.03442f},
+    { -0.00087f,  0.03641f},
+    { -0.00025f,  0.03656f},
+    {  0.00006f,  0.03651f},
+    {  0.00032f,  0.03634f},
+    {  0.00065f,  0.03586f},
+    {  0.00122f,  0.03327f},
+    {  0.00118f,  0.03291f},
+    {  0.00107f,  0.03273f},
+    {  0.00075f,  0.03253f},
+    { -0.00253f,  0.03190f},
+    { -0.00653f,  0.02990f},
+    { -0.01166f,  0.02403f},
+    { -0.01871f,  0.00769f},
+    { -0.03069f, -0.01158f},
+    { -0.03322f, -0.02108f},
+    { -0.03216f, -0.03084f},
+    { -0.02768f, -0.03939f},
+    { -0.02002f, -0.04614f},
+    { -0.01107f, -0.04966f},
+    {  0.01140f, -0.05000f},
+    {  0.01973f, -0.04666f},
+    {  0.02779f, -0.03954f},
+    {  0.03201f, -0.03157f},
+    {  0.03322f, -0.02189f},
+    {  0.02767f, -0.00423f},
+    {  0.01757f,  0.02185f},
+    {  0.01328f,  0.02764f},
+    {  0.01045f,  0.02932f},
+    {  0.00799f,  0.02997f},
+    {  0.00747f,  0.03033f},
+    {  0.00719f,  0.03080f},
+    {  0.00532f,  0.04049f},
+    {  0.00424f,  0.04236f},
+    {  0.00325f,  0.04315f},
+    {  0.00213f,  0.04342f},
+    {  0.00147f,  0.04376f},
+    { -0.00064f,  0.04640f},
+    { -0.00373f,  0.04904f}
+};
+// ----- hammer, 20 pts, CCW -----
+// const int SHAPE_N = 20;
+// const float SHAPE_PTS[SHAPE_N][2] PROGMEM = {
+//     {  0.02711f, -0.02543f},
+//     {  0.03373f, -0.02405f},
+//     {  0.04837f,  0.00085f},
+//     {  0.04601f,  0.01031f},
+//     {  0.05000f,  0.01459f},
+//     {  0.04975f,  0.02316f},
+//     {  0.03763f,  0.02543f},
+//     {  0.03595f,  0.01676f},
+//     {  0.03882f,  0.01165f},
+//     {  0.03618f,  0.00656f},
+//     { -0.01592f,  0.01238f},
+//     { -0.01681f,  0.01369f},
+//     { -0.04632f,  0.01819f},
+//     { -0.04977f,  0.01622f},
+//     { -0.05000f,  0.00457f},
+//     { -0.01909f,  0.00083f},
+//     { -0.01718f,  0.00216f},
+//     {  0.03274f, -0.00498f},
+//     {  0.03485f, -0.01254f},
+//     {  0.02711f, -0.02543f}
 // };
 
-const int   SHAPE_N = 4;
-const float SHAPE_PTS[SHAPE_N][2] = {
-  { -0.03f, 0.07f },   // bottom-left
-  {  0.03f, 0.07f },   // bottom-right
-  {  0.03f, 0.13f },   // top-right
-  { -0.03f, 0.13f }    // top-left
-};
+// //----- square, 10 pts, CCW -----
+// const int SHAPE_N = 10;
+// const float SHAPE_PTS[SHAPE_N][2] PROGMEM = {
+//     { -0.03500f,  0.13500f},
+//     { -0.03500f,  0.10179f},
+//     { -0.03500f,  0.06858f},
+//     { -0.01167f,  0.06500f},
+//     {  0.02154f,  0.06500f},
+//     {  0.03500f,  0.07846f},
+//     {  0.03500f,  0.11167f},
+//     {  0.03142f,  0.13500f},
+//     { -0.00179f,  0.13500f},
+//     { -0.03500f,  0.13500f}
+// };
+
+// const int   SHAPE_N = 4;
+// const float SHAPE_PTS[SHAPE_N][2] PROGMEM = {
+//   { -0.03f, 0.07f },   // bottom-left
+//   {  0.03f, 0.07f },   // bottom-right
+//   {  0.03f, 0.13f },   // top-right
+//   { -0.03f, 0.13f }    // top-left
+// };
+
+inline float shapeX(int i) { return pgm_read_float(&SHAPE_PTS[i][0]); }
+inline float shapeY(int i) { return pgm_read_float(&SHAPE_PTS[i][1]) + 0.10f; }
+
+
 
 // ============================================================
 // ENCODER STATE — TWO COPIES, one per sensor
 // ============================================================
-// Each encoder needs its own flip-detection state machine.
-struct EncoderState {
-  int  rawPos, lastRawPos, lastLastRawPos;
-  int  rawDiff, lastRawDiff;
-  int  rawOffset, lastRawOffset;
-  int  flipNumber, tempOffset;
-  bool flipped;
-  int  updatedPos;
-};
+
 EncoderState enc_M1 = {0,0,0,0,0,0,0,0,0,false,0};
 EncoderState enc_M5 = {0,0,0,0,0,0,0,0,0,false,0};
 const int flipThresh = 700;
@@ -185,10 +278,10 @@ void findTwoNearestOnPolygon(float px, float py,
   for (int i = 0; i < SHAPE_N; i++) {
     int j = (i + 1) % SHAPE_N;
     float seg_nx, seg_ny;
-    float d2 = distSqToSegment(px, py,
-                               SHAPE_PTS[i][0], SHAPE_PTS[i][1],
-                               SHAPE_PTS[j][0], SHAPE_PTS[j][1],
-                               seg_nx, seg_ny);
+  float d2 = distSqToSegment(px, py,
+                           shapeX(i), shapeY(i),
+                           shapeX(j), shapeY(j),
+                           seg_nx, seg_ny);
     if (d2 < d2_1) {
       // Demote previous best to second, then update best.
       d2_2 = d2_1; nx2 = nx1; ny2 = ny1;
@@ -210,8 +303,8 @@ float findNearestPointOnPolygon(float px, float py, float &nx, float &ny) {
 bool pointInPolygon(float px, float py) {
   bool inside = false;
   for (int i = 0, j = SHAPE_N - 1; i < SHAPE_N; j = i++) {
-    float xi = SHAPE_PTS[i][0], yi = SHAPE_PTS[i][1];
-    float xj = SHAPE_PTS[j][0], yj = SHAPE_PTS[j][1];
+    float xi = shapeX(i), yi = shapeY(i);
+    float xj = shapeX(j), yj = shapeY(j);
 
     bool crosses = ((yi > py) != (yj > py)) &&
                    (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
@@ -221,7 +314,7 @@ bool pointInPolygon(float px, float py) {
 }
 
 // ============================================================
-// FORCE COMPUTATION (unchanged)
+// FORCE COMPUTATION (OG)
 // ============================================================
 
 // void computeForce(float xh, float yh, float &Fx, float &Fy) {
@@ -243,40 +336,77 @@ bool pointInPolygon(float px, float py) {
 //   Fy -= B_WALL * vy_filt;
 // }
 
-const float B_WALL = 0.5f;
+// ============================================================
+// SEGMENTS FORCE COMPUTATION 
+// ============================================================
+
+// const float B_WALL = 0.5f;
+// void computeForce(float xh, float yh, float &Fx, float &Fy) {
+//   // Outside the polygon = free space, no force.
+//   if (!pointInPolygon(xh, yh)) {
+//     Fx = 0.0f;
+//     Fy = 0.0f;
+//     return;
+//   }
+
+//   // Inside: find the two nearest edges and blend their restoring forces
+//   // by inverse-square weighting. This smooths the 90° direction snap
+//   // that would otherwise occur on a corner's bisector.
+//   float nx1, ny1, d2_1, nx2, ny2, d2_2;
+//   findTwoNearestOnPolygon(xh, yh, nx1, ny1, d2_1, nx2, ny2, d2_2);
+
+//   // Per-edge restoring force vectors (each pushes toward its nearest pt).
+//   float F1x = K_WALL * (nx1 - xh) ;
+//   float F1y = K_WALL * (ny1 - yh) ;
+//   float F2x = K_WALL * (nx2 - xh) ;
+//   float F2y = K_WALL * (ny2 - yh) ;
+
+//   // Inverse-square weights. Add a tiny epsilon to avoid divide-by-zero
+//   // when the pen is exactly on a boundary point.
+//   const float EPS = 1e-9f;
+//   float w1 = 1.0f / (d2_1 + EPS);
+//   float w2 = 1.0f / (d2_2 + EPS);
+//   float wsum = w1 + w2;
+
+//   Fx = ((w1 * F1x + w2 * F2x) / wsum);
+//   Fy = ((w1 * F1y + w2 * F2y) / wsum);
+
+//uncomment for damping
+  // Fx = ((w1 * F1x + w2 * F2x) / wsum) - B_WALL * vx_filt;
+  // Fy = ((w1 * F1y + w2 * F2y) / wsum) - B_WALL * vy_filt;
+
+
+// ============================================================
+// PROXY-BASED FORCE COMPUTATION
+// ============================================================
+// The proxy is a virtual point that:
+//   - Follows the pen freely when INSIDE the shape
+//   - Gets stuck on the nearest boundary point when OUTSIDE
+// Force = spring between proxy and actual pen position
+// This prevents "jumping through" thin features like the handle
+
 void computeForce(float xh, float yh, float &Fx, float &Fy) {
-  // Outside the polygon = free space, no force.
+
   if (!pointInPolygon(xh, yh)) {
+    // OUTSIDE: free space, proxy follows pen, no force
+    proxy_x = xh;
+    proxy_y = yh;
     Fx = 0.0f;
     Fy = 0.0f;
     return;
   }
 
-  // Inside: find the two nearest edges and blend their restoring forces
-  // by inverse-square weighting. This smooths the 90° direction snap
-  // that would otherwise occur on a corner's bisector.
+  // INSIDE: proxy gets stuck on nearest boundary point
   float nx1, ny1, d2_1, nx2, ny2, d2_2;
   findTwoNearestOnPolygon(xh, yh, nx1, ny1, d2_1, nx2, ny2, d2_2);
 
-  // Per-edge restoring force vectors (each pushes toward its nearest pt).
-  float F1x = K_WALL * (nx1 - xh) ;
-  float F1y = K_WALL * (ny1 - yh) ;
-  float F2x = K_WALL * (nx2 - xh) ;
-  float F2y = K_WALL * (ny2 - yh) ;
+  // proxy snaps to nearest wall point
+  proxy_x = nx1;
+  proxy_y = ny1;
 
-  // Inverse-square weights. Add a tiny epsilon to avoid divide-by-zero
-  // when the pen is exactly on a boundary point.
-  const float EPS = 1e-9f;
-  float w1 = 1.0f / (d2_1 + EPS);
-  float w2 = 1.0f / (d2_2 + EPS);
-  float wsum = w1 + w2;
-
-  Fx = ((w1 * F1x + w2 * F2x) / wsum);
-  Fy = ((w1 * F1y + w2 * F2y) / wsum);
-
-//uncomment for damping
-  // Fx = ((w1 * F1x + w2 * F2x) / wsum) - B_WALL * vx_filt;
-  // Fy = ((w1 * F1y + w2 * F2y) / wsum) - B_WALL * vy_filt;
+  // force pushes pen toward the wall (outward)
+  Fx = K_WALL * (proxy_x - xh);
+  Fy = K_WALL * (proxy_y - yh);
 }
 
 // ============================================================
