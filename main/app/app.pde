@@ -238,8 +238,8 @@ float[][] loadCoordinates(String filename) {
       try {
         float rawX = Float.parseFloat(parts[0].trim());
         float rawY = Float.parseFloat(parts[1].trim());
-        pts[idx][0] = meterToPixelX(rawX);
-        pts[idx][1] = meterToPixelY(rawY);
+        pts[idx][0] = width - meterToPixelX(rawX);
+        pts[idx][1] = height - meterToPixelY(rawY);
         idx++;
       } catch (NumberFormatException e) {}
     }
@@ -393,7 +393,7 @@ void drawDots() {
   fill(red(dotColor), green(dotColor), blue(dotColor), dotOpacity);
     noStroke();
     for (int i = 0; i < points.length; i++) {
-      ellipse(-points[i][0], -points[i][1], dotRadius * 2, dotRadius * 2);
+      ellipse(points[i][0], points[i][1], dotRadius * 2, dotRadius * 2);
     }
 }
 
@@ -402,7 +402,7 @@ void drawLines() {
     stroke(red(lineColor), green(lineColor), blue(lineColor), lineOpacity);
     noFill();
     for (int i = 0; i < points.length - 1; i++) {
-      line(-points[i][0], -points[i][1], -points[i+1][0], -points[i+1][1]);
+      line(points[i][0], points[i][1], points[i+1][0], points[i+1][1]);
     }
 }
 
