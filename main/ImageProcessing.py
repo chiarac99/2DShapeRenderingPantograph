@@ -165,7 +165,7 @@ def ensure_ccw(points, svg_coords=True):
 #      (merged from preprocess_shapes.py)
 # ---------------------------------------------------------------------------
 
-TARGET_SIZE = 0.07   # m, slight margin from 8 cm
+TARGET_SIZE = 0.1   # m, slight margin from 8 cm
 
 def signed_area(points):
     """Shoelace formula. Positive = CCW, negative = CW. Operates on list of (x, y)."""
@@ -177,16 +177,16 @@ def signed_area(points):
     return 0.5 * a
 
 def normalize(points):
-    """Center at origin, flip y (SVG y-down -> math y-up), scale to TARGET_SIZE."""
+    """Center at origin, flip y (SVG y-down -> math y-up), scale to TARGET_SIZE, rotate 180°."""
     pts = [(x, -y) for x, y in points]
     xs = [p[0] for p in pts]
     ys = [p[1] for p in pts]
     cx = (min(xs) + max(xs)) / 2
     cy = (min(ys) + max(ys)) / 2
-    w  = max(xs) - min(xs)
-    h  = max(ys) - min(ys)
+    w = max(xs) - min(xs)
+    h = max(ys) - min(ys)
     scale = TARGET_SIZE / max(w, h)
-    pts = [((x - cx) * scale, (y - cy) * scale) for x, y in pts]
+    pts = [(-(x - cx) * scale, -(y - cy) * scale) for x, y in pts]  # negated for 180° rotation
     return pts
 
 def emit_arduino_c(name, points):
@@ -546,14 +546,14 @@ def main():
 
 
 if __name__ == "__main__":
-    from svgpathtools import svg2paths2
-    import numpy as np
-
-    paths, _, _ = svg2paths2("outlineSvgs/hammer_outline.svg")
-    all_pts = np.concatenate([
-        np.array([p.point(t) for t in np.linspace(0, 1, 500)])
-        for p in paths
-    ])
-    print(f"x: {all_pts.real.min():.1f} – {all_pts.real.max():.1f}")
-    print(f"y: {all_pts.imag.min():.1f} – {all_pts.imag.max():.1f}")
+    # from svgpathtools import svg2paths2
+    # import numpy as np
+    #
+    # paths, _, _ = svg2paths2("outlineSvgs/hammer_outline.svg")
+    # all_pts = np.concatenate([
+    #     np.array([p.point(t) for t in np.linspace(0, 1, 500)])
+    #     for p in paths
+    # ])
+    # print(f"x: {all_pts.real.min():.1f} – {all_pts.real.max():.1f}")
+    # print(f"y: {all_pts.imag.min():.1f} – {all_pts.imag.max():.1f}")
     main()

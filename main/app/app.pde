@@ -84,15 +84,12 @@ void setup() {
   setupSerial();
   dbConnect(); // needed to load the shape csv filename
   
-  if (TEST) {
-    setShape(TEST_SHAPE_ID);
-  } else {
-    setShape(shapeId);
-    nextShapeBtn   = new Button(700, 700, 120, 35, "Next");
-    setupShapeDropdown();
-    guessInput     = new TextInput(100, 200, 300, 40, "What do you think the shape is...");
-    submitBtn      = new Button(500, 200, 120, 35, "Go");
-  }
+  setShape(shapeId);
+  nextShapeBtn   = new Button(700, 700, 120, 35, "Next");
+  setupShapeDropdown();
+  guessInput     = new TextInput(100, 200, 300, 40, "What do you think the shape is...");
+  submitBtn      = new Button(500, 200, 120, 35, "Go");
+
   
 }
 
@@ -116,13 +113,10 @@ void draw() {
 }
 
 void mousePressed() {
-  if (screen == 1) {
-    nextShapeBtn.handleClick(mouseX, mouseY);
-    shapeDropdown.handleClick(mouseX, mouseY);
-  } else {
-    guessInput.handleClick(mouseX, mouseY);
-    submitBtn.handleClick(mouseX, mouseY);
-  }
+  nextShapeBtn.handleClick(mouseX, mouseY);
+  shapeDropdown.handleClick(mouseX, mouseY);
+  guessInput.handleClick(mouseX, mouseY);
+  submitBtn.handleClick(mouseX, mouseY);
 }
 
 void keyPressed() {
@@ -143,20 +137,26 @@ void toggleScreen(){
 }
 
 void drawTestMode() {
+  // React to dropdown changing shapeId
+  if (shapeId != lastShapeId) {
+    lastShapeId = shapeId;
+    setShape(shapeId);
+  }
+
   float xh = -(arduinoFx - WORKSPACE_CENTER_X);
   float yh = -(arduinoFy - WORKSPACE_CENTER_Y);
 
-  drawLines();    // CSV-defined square
+  drawLines();
   drawDots();
-  drawFirmwareSquare();   // overlay: where the firmware *thinks* the square is
   drawPenTip(xh, yh);
-  drawForceVector(xh, yh);   // arrow showing direction/magnitude of force
+  drawForceVector(xh, yh);
 
-  // Text overlay
+  shapeDropdown.draw();
+
   fill(80);
   textAlign(LEFT, TOP);
   textSize(12);
-  text("TEST MODE", 10, 10);
+  text("TEST MODE — " + (currentShape != null ? currentShape.shapeName : ""), 10, 10);
   text("pen: (" + nf(arduinoFx, 1, 4) + ", " + nf(arduinoFy, 1, 4) + ") m", 10, 26);
   text("force: (" + nf(arduinoForceX, 1, 3) + ", " + nf(arduinoForceY, 1, 3) + ") N", 10, 42);
   float fmag = sqrt(arduinoForceX*arduinoForceX + arduinoForceY*arduinoForceY);
@@ -181,8 +181,8 @@ void drawGuessScreen(){
 
 void drawResultsScreen(){
   // update user position
-  float xh = arduinoFx - WORKSPACE_CENTER_X;
-  float yh = arduinoFy - WORKSPACE_CENTER_Y;
+  float xh = -(arduinoFx - WORKSPACE_CENTER_X);
+  float yh = -(arduinoFy - WORKSPACE_CENTER_Y);
 
   // draw user
   drawPenTip(xh, yh);
@@ -311,7 +311,7 @@ void setupSerial() {
   }
 
   // Connect to Board 5 ONLY — hardcode the port name
-  String BOARD5_PORT = "COM3";  // ← change this to whatever Board 5 is
+  String BOARD5_PORT = "/dev/tty.usbserial-A10POSFY";  // ← change this to whatever Board 5 is
 
   try {
     Serial board5 = new Serial(this, BOARD5_PORT, 115200);
@@ -393,7 +393,7 @@ void drawDots() {
   fill(red(dotColor), green(dotColor), blue(dotColor), dotOpacity);
     noStroke();
     for (int i = 0; i < points.length; i++) {
-      ellipse(points[i][0], points[i][1], dotRadius * 2, dotRadius * 2);
+      ellipse(-points[i][0], -points[i][1], dotRadius * 2, dotRadius * 2);
     }
 }
 
@@ -402,7 +402,7 @@ void drawLines() {
     stroke(red(lineColor), green(lineColor), blue(lineColor), lineOpacity);
     noFill();
     for (int i = 0; i < points.length - 1; i++) {
-      line(points[i][0], points[i][1], points[i+1][0], points[i+1][1]);
+      line(-points[i][0], -points[i][1], -points[i+1][0], -points[i+1][1]);
     }
 }
 
