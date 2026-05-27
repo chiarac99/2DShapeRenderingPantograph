@@ -47,6 +47,8 @@ struct EncoderState {
 
 float proxy_x = 0.0f;
 float proxy_y = 0.0f;
+float Fx_filt = 0.0f;
+float Fy_filt = 0.0f;
 
 // ============================================================
 // LINK LENGTHS [meters] — unchanged from previous firmware
@@ -172,7 +174,7 @@ const float BELL_PTS[BELL_N][2] PROGMEM = {
     { -0.00902f, -0.04267f},
     { -0.00000f, -0.05000f}
 };
-const float BELL_K_WALL = 30.0f;
+const float BELL_K_WALL = 50.0f;
 const float BELL_B_WALL = 0.0f;
 
 // //----- banana, 20 pts, CCW -----
@@ -199,32 +201,32 @@ const float BANANA_PTS[BANANA_N][2] PROGMEM = {
     { -0.04389f, -0.03340f},
     { -0.04365f, -0.03519f}
 };
-const float BANANA_K_WALL = 30.0f;
-const float BANANA_B_WALL = 0.0f;
+const float BANANA_K_WALL = 40.0f;
+const float BANANA_B_WALL = 0.03f;
 
 // //----- fish, 20 pts, CCW -----
 const int FISH_N = 20;
 const float FISH_PTS[FISH_N][2] PROGMEM = {
-    { -0.05000f, -0.00048f},
-    { -0.03185f, -0.01907f},
-    {  0.00304f, -0.02172f},
-    {  0.02803f, -0.01074f},
-    {  0.02831f, -0.01060f},
-    {  0.02867f, -0.01102f},
-    {  0.04733f, -0.02281f},
-    {  0.04935f, -0.02281f},
-    {  0.05000f, -0.02213f},
-    {  0.04993f, -0.01985f},
-    {  0.04750f,  0.01225f},
-    {  0.04993f,  0.02208f},
-    {  0.04937f,  0.02276f},
-    {  0.04708f,  0.02281f},
-    {  0.02893f,  0.01116f},
-    {  0.02832f,  0.01044f},
-    {  0.02804f,  0.01055f},
-    {  0.00235f,  0.02159f},
-    { -0.03114f,  0.01881f},
-    { -0.05000f, -0.00048f}
+    {  0.04127f,  0.03404f},
+    {  0.03697f, -0.01942f},
+    {  0.03391f, -0.02598f},
+    {  0.00850f, -0.00489f},
+    { -0.03745f, -0.00993f},
+    { -0.03624f,  0.01676f},
+    {  0.00826f,  0.01186f},
+    {  0.02656f,  0.02820f},
+    {  0.04105f,  0.03405f},
+    {  0.04115f,  0.03408f},
+    {  0.01097f,  0.01446f},
+    { -0.01535f,  0.02071f},
+    { -0.05000f,  0.00331f},
+    { -0.01507f, -0.01357f},
+    {  0.01520f, -0.01209f},
+    {  0.04126f, -0.02933f},
+    {  0.04122f, -0.02907f},
+    {  0.03437f,  0.01562f},
+    {  0.04074f,  0.03332f},
+    {  0.05000f, -0.03408f}
 };
 const float FISH_K_WALL = 30.0f;
 const float FISH_B_WALL = 0.0f;
@@ -478,60 +480,31 @@ bool pointInPolygon(float px, float py) {
 // PROXY + ROUNDED CORNERS
 // ============================================================
 void computeForce(float xh, float yh, float &Fx, float &Fy) {
-
   if (!pointInPolygon(xh, yh)) {
-    // OUTSIDE: free space, proxy follows pen, no force
-    proxy_x = xh;
-    proxy_y = yh;
     Fx = 0.0f;
     Fy = 0.0f;
     return;
   }
 
-  // INSIDE: move proxy incrementally toward pen, constrained to boundary
-  float dx = xh - proxy_x;
-  float dy = yh - proxy_y;
-  float dist = sqrtf(dx*dx + dy*dy);
-
-  if (dist > 1e-7f) {
-    float step = 0.002f;  // 2mm step max per loop
-    float new_px = proxy_x + step * (dx/dist);
-    float new_py = proxy_y + step * (dy/dist);
-
-    if (!pointInPolygon(new_px, new_py)) {
-      proxy_x = new_px;
-      proxy_y = new_py;
-    } else {
-      // Project back to boundary
-      float nx, ny;
-      findNearestPointOnPolygon(new_px, new_py, nx, ny);
-      proxy_x = nx;
-      proxy_y = ny;
-    }
-  }
-
-  // Force from proxy using TWO nearest points blended with inverse-square weights
-  // This gives smooth corners while proxy prevents crossing
+  // Just find nearest two points and blend — no proxy sliding
   float nx1, ny1, d2_1, nx2, ny2, d2_2;
-  findTwoNearestOnPolygon(proxy_x, proxy_y, nx1, ny1, d2_1, nx2, ny2, d2_2);
+  findTwoNearestOnPolygon(xh, yh, nx1, ny1, d2_1, nx2, ny2, d2_2);
 
-  float F1x = K_WALL * (proxy_x - xh);
-  float F1y = K_WALL * (proxy_y - yh);
-
-  // Blend direction using two nearest boundary points from proxy location
-  float F2x = K_WALL * (nx1 - xh);
-  float F2y = K_WALL * (ny1 - yh);
-  float F3x = K_WALL * (nx2 - xh);
-  float F3y = K_WALL * (ny2 - yh);
+  float F1x = K_WALL * (nx1 - xh);
+  float F1y = K_WALL * (ny1 - yh);
+  float F2x = K_WALL * (nx2 - xh);
+  float F2y = K_WALL * (ny2 - yh);
 
   const float EPS = 1e-9f;
   float w1 = 1.0f / (d2_1 + EPS);
   float w2 = 1.0f / (d2_2 + EPS);
   float wsum = w1 + w2;
 
-  Fx = (w1 * F2x + w2 * F3x) / wsum - B_WALL * vx_filt;
-  Fy = (w1 * F2y + w2 * F3y) / wsum - B_WALL * vy_filt;
+  Fx = (w1 * F1x + w2 * F2x) / wsum;
+  Fy = (w1 * F1y + w2 * F2y) / wsum;
+  
 }
+
 
 // ============================================================
 // ENCODER READING — generalized to operate on a given EncoderState
@@ -734,14 +707,18 @@ void loop() {
   float Fx, Fy;
   computeForce(xh, yh, Fx, Fy);
 
+  // Filter force to smooth out jitter
+  Fx_filt = 0.7f * Fx_filt + 0.3f * Fx;
+  Fy_filt = 0.7f * Fy_filt + 0.3f * Fy;
+
   // 4. Compute torque + PWM for EACH motor.
   float tau_M1 = 0.0f, duty_M1 = 0.0f;
   float tau_M5 = 0.0f, duty_M5 = 0.0f;
   int  pwm_M1 = 0,    pwm_M5 = 0;
   bool dir_M1 = false, dir_M5 = false;
 
-  pwm_M1 = computeMotorOutputPWM(Fx, Fy, theta1, theta5, 1, tau_M1, duty_M1, dir_M1);
-  pwm_M5 = computeMotorOutputPWM(Fx, Fy, theta1, theta5, 5, tau_M5, duty_M5, dir_M5);
+  pwm_M1 = computeMotorOutputPWM(Fx_filt, Fy_filt, theta1, theta5, 1, tau_M1, duty_M1, dir_M1);
+  pwm_M5 = computeMotorOutputPWM(Fx_filt, Fy_filt, theta1, theta5, 5, tau_M5, duty_M5, dir_M5);
 
 // 5. Apply forces to BOTH motors. Serial now used for commands (NOT auto-kill)
 if (FORCE_OUTPUT_ENABLED && !force_killed && !motor_killed && !motor_test_started) {
