@@ -107,8 +107,8 @@ bool force_killed = false;
 // ============================================================
 // FORCE MODEL (unchanged)
 // ============================================================
-const float K_WALL = 30.0f;
-const float B_WALL = 0.0f;
+float K_WALL = 30.0f;
+float B_WALL = 0.0f;
 
 // ============================================================
 // MOTOR DRIVE CONSTANTS (unchanged)
@@ -145,6 +145,8 @@ const float DUCK_PTS[DUCK_N][2] PROGMEM = {
     {  0.04302f,  0.02963f},
     { -0.00800f,  0.04611f}
 };
+const float DUCK_K_WALL = 30.0f;
+const float DUCK_B_WALL = 0.0f;
 
 // ----- bell, 20 pts, CCW -----
 const int BELL_N = 20;
@@ -170,6 +172,8 @@ const float BELL_PTS[BELL_N][2] PROGMEM = {
     { -0.00902f, -0.04267f},
     { -0.00000f, -0.05000f}
 };
+const float BELL_K_WALL = 30.0f;
+const float BELL_B_WALL = 0.0f;
 
 // //----- banana, 20 pts, CCW -----
 const int BANANA_N = 20;
@@ -195,6 +199,8 @@ const float BANANA_PTS[BANANA_N][2] PROGMEM = {
     { -0.04389f, -0.03340f},
     { -0.04365f, -0.03519f}
 };
+const float BANANA_K_WALL = 30.0f;
+const float BANANA_B_WALL = 0.0f;
 
 // //----- fish, 20 pts, CCW -----
 const int FISH_N = 20;
@@ -220,6 +226,8 @@ const float FISH_PTS[FISH_N][2] PROGMEM = {
     { -0.03114f,  0.01881f},
     { -0.05000f, -0.00048f}
 };
+const float FISH_K_WALL = 30.0f;
+const float FISH_B_WALL = 0.0f;
 
 
 const float (*activeShape)[2] = FISH_PTS;
@@ -485,7 +493,7 @@ void computeForce(float xh, float yh, float &Fx, float &Fy) {
   float dy = yh - proxy_y;
   float dist = sqrtf(dx*dx + dy*dy);
 
-  if (dist > 1e-6f) {
+  if (dist > 1e-7f) {
     float step = 0.002f;  // 2mm step max per loop
     float new_px = proxy_x + step * (dx/dist);
     float new_py = proxy_y + step * (dy/dist);
@@ -850,6 +858,8 @@ void setShape(char c) {
     case 'f':
       activeShape = FISH_PTS;
       activeShapeN = FISH_N;
+      K_WALL = FISH_K_WALL;
+      B_WALL = FISH_B_WALL;
       Serial.println("# shape: fish");
       break;
 
@@ -857,6 +867,8 @@ void setShape(char c) {
     case 'b':
       activeShape = BANANA_PTS;
       activeShapeN = BANANA_N;
+      K_WALL = BANANA_K_WALL;
+      B_WALL = BANANA_B_WALL;
       Serial.println("# shape: banana");
       break;
 
@@ -864,6 +876,8 @@ void setShape(char c) {
     case 'd':
       activeShape = DUCK_PTS;
       activeShapeN = DUCK_N;
+      K_WALL = DUCK_K_WALL;
+      B_WALL = DUCK_B_WALL;
       Serial.println("# shape: duck");
       break;
 
@@ -871,6 +885,8 @@ void setShape(char c) {
     case 'e':
       activeShape = BELL_PTS;
       activeShapeN = BELL_N;
+      K_WALL = BELL_K_WALL;
+      B_WALL = BELL_B_WALL;
       Serial.println("# shape: bell");
       break;
   }
