@@ -101,7 +101,6 @@ const int   PWM_OUTPUT_CAP   = 153; // 60% of 255
 const float JAC_PERTURB      = 1e-4f;
 const bool  FORCE_OUTPUT_ENABLED = true;
 
-bool force_killed = false;
 void computeForce(float xh, float yh, float &Fx, float &Fy) {
   Fx = 0.0f;
   Fy = 0.0f;
@@ -303,26 +302,15 @@ void loop() {
   pwm_M5 = computeMotorOutputPWM(Fx, Fy, theta1, theta5, 5, tau_M5, duty_M5, dir_M5);
 
   // 6. Apply Forces
-  if (FORCE_OUTPUT_ENABLED && !force_killed) {
-    if (Serial.available()) {
-      while (Serial.available()) Serial.read();
-      force_killed = true;
+  if (FORCE_OUTPUT_ENABLED) {
+    digitalWrite(DIR_PIN_M5, dir_M5 ? LOW : HIGH);
+    digitalWrite(DIR_PIN_M1, dir_M1 ? LOW : HIGH);
+    analogWrite(PWM_PIN_M5, pwm_M5);
+    analogWrite(PWM_PIN_M1, pwm_M1);
+  } else {
       analogWrite(PWM_PIN_M5, 0);
       analogWrite(PWM_PIN_M1, 0);
-      digitalWrite(DIR_PIN_M5, LOW);
-      digitalWrite(DIR_PIN_M1, LOW);
-      Serial.println("# FORCE OUTPUT KILLED by serial input.");
-    } else {
-      digitalWrite(DIR_PIN_M5, dir_M5 ? LOW : HIGH);
-      digitalWrite(DIR_PIN_M1, dir_M1 ? LOW : HIGH);
-      analogWrite(PWM_PIN_M5, pwm_M5);
-      analogWrite(PWM_PIN_M1, pwm_M1);
-    }
-  } else {
-    analogWrite(PWM_PIN_M5, 0);
-    analogWrite(PWM_PIN_M1, 0);
   }
-
   // 7. Data Output for Processing Gui
   static int csvCounter = 0;
   if (++csvCounter >= 5) {

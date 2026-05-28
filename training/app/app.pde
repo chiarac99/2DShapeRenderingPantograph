@@ -55,8 +55,8 @@ void setup() {
 void draw() {
   background(255);
 
-  float xh = -(arduinoFx - WORKSPACE_CENTER_X);
-  float yh = -(arduinoFy - WORKSPACE_CENTER_Y);
+  float xh = (arduinoFx - WORKSPACE_CENTER_X);
+  float yh = (arduinoFy - WORKSPACE_CENTER_Y);
 
   // drawAxes();
   drawQuadrants();
