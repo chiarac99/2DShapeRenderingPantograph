@@ -204,33 +204,98 @@ const float BANANA_PTS[BANANA_N][2] PROGMEM = {
 const float BANANA_K_WALL = 40.0f;
 const float BANANA_B_WALL = 0.03f;
 
-// //----- fish, 20 pts, CCW -----
+// ----- fish, 20 pts, CCW -----
 const int FISH_N = 20;
 const float FISH_PTS[FISH_N][2] PROGMEM = {
-    {  0.04127f,  0.03404f},
-    {  0.03697f, -0.01942f},
-    {  0.03391f, -0.02598f},
-    {  0.00850f, -0.00489f},
-    { -0.03745f, -0.00993f},
-    { -0.03624f,  0.01676f},
-    {  0.00826f,  0.01186f},
-    {  0.02656f,  0.02820f},
-    {  0.04105f,  0.03405f},
-    {  0.04115f,  0.03408f},
-    {  0.01097f,  0.01446f},
-    { -0.01535f,  0.02071f},
-    { -0.05000f,  0.00331f},
-    { -0.01507f, -0.01357f},
-    {  0.01520f, -0.01209f},
-    {  0.04126f, -0.02933f},
-    {  0.04122f, -0.02907f},
-    {  0.03437f,  0.01562f},
-    {  0.04074f,  0.03332f},
-    {  0.05000f, -0.03408f}
+    {  0.05000f, -0.03438f},
+    {  0.04406f, -0.02006f},
+    {  0.04119f,  0.00626f},
+    {  0.04952f,  0.03438f},
+    {  0.03319f,  0.02838f},
+    {  0.02185f,  0.02001f},
+    {  0.01531f,  0.01174f},
+    {  0.00365f,  0.01618f},
+    { -0.01638f,  0.02101f},
+    { -0.03055f,  0.01845f},
+    { -0.04274f,  0.01037f},
+    { -0.05000f,  0.00102f},
+    { -0.04410f, -0.00654f},
+    { -0.03870f, -0.01131f},
+    { -0.02690f, -0.01672f},
+    { -0.01073f, -0.01688f},
+    {  0.01364f, -0.00754f},
+    {  0.02034f, -0.01432f},
+    {  0.02487f, -0.01882f},
+    {  0.05000f, -0.03438f}
 };
 const float FISH_K_WALL = 30.0f;
 const float FISH_B_WALL = 0.0f;
 
+// ----- horseshoe, 20 pts, CCW -----
+const int HORSESHOE_N = 20;
+const float HORSESHOE_PTS[HORSESHOE_N][2] PROGMEM = {
+    { -0.03866f, -0.05000f},
+    { -0.01951f, -0.03805f},
+    { -0.02731f, -0.01591f},
+    { -0.02640f,  0.01370f},
+    { -0.01117f,  0.02920f},
+    {  0.01194f,  0.02885f},
+    {  0.02687f,  0.01236f},
+    {  0.02894f, -0.00644f},
+    {  0.01957f, -0.03840f},
+    {  0.03930f, -0.04981f},
+    {  0.04570f, -0.03838f},
+    {  0.03778f, -0.03189f},
+    {  0.04503f,  0.00317f},
+    {  0.03209f,  0.03730f},
+    { -0.00075f,  0.05000f},
+    { -0.03283f,  0.03654f},
+    { -0.04514f,  0.00098f},
+    { -0.03797f, -0.03290f},
+    { -0.04570f, -0.03958f},
+    { -0.03866f, -0.05000f}
+};
+const float HORSESHOE_K_WALL = 50.0f;   // same as bell
+const float HORSESHOE_B_WALL = 0.0f;    // same as bell
+
+// ----- mushroom, 20 pts, CCW -----
+const int MUSHROOM_N = 20;
+const float MUSHROOM_PTS[MUSHROOM_N][2] PROGMEM = {
+    { -0.00091f, -0.05000f},
+    {  0.01890f, -0.04632f},
+    {  0.04305f, -0.02557f},
+    {  0.04945f, -0.00487f},
+    {  0.04694f,  0.00190f},
+    {  0.03936f,  0.00570f},
+    {  0.01419f,  0.00718f},
+    {  0.01960f,  0.03896f},
+    {  0.01795f,  0.04535f},
+    {  0.01305f,  0.04936f},
+    { -0.01419f,  0.05000f},
+    { -0.01969f,  0.04692f},
+    { -0.02173f,  0.04047f},
+    { -0.01678f,  0.00618f},
+    { -0.04219f,  0.00539f},
+    { -0.04753f,  0.00173f},
+    { -0.04945f, -0.00484f},
+    { -0.04439f, -0.02310f},
+    { -0.02049f, -0.04558f},
+    { -0.00091f, -0.05000f}
+};
+const float MUSHROOM_K_WALL = 40.0f;    // same as banana
+const float MUSHROOM_B_WALL = 0.03f;    // same as banana
+
+// ----- square, 4 corners, CCW (6 cm × 6 cm) -----
+const int SQUARE_N = 5;
+const float SQUARE_PTS[SQUARE_N][2] PROGMEM = {
+    { -0.03000f, -0.03000f},
+    {  0.03000f, -0.03000f},
+    {  0.03000f,  0.03000f},
+    { -0.03000f,  0.03000f},
+    { -0.03000f, -0.03000f}
+};
+const float SQUARE_K_WALL = 50.0f;   // high stiffness
+const float SQUARE_B_WALL = 0.0f;    // no damping
 
 const float (*activeShape)[2] = FISH_PTS;
 int activeShapeN = FISH_N;
@@ -865,6 +930,33 @@ void setShape(char c) {
       K_WALL = BELL_K_WALL;
       B_WALL = BELL_B_WALL;
       Serial.println("# shape: bell");
+      break;
+
+    case 'H':
+    case 'h':
+      activeShape = HORSESHOE_PTS;
+      activeShapeN = HORSESHOE_N;
+      K_WALL = HORSESHOE_K_WALL;
+      B_WALL = HORSESHOE_B_WALL;
+      Serial.println("# shape: horseshoe");
+      break;
+
+    case 'M':
+    case 'm':
+      activeShape = MUSHROOM_PTS;
+      activeShapeN = MUSHROOM_N;
+      K_WALL = MUSHROOM_K_WALL;
+      B_WALL = MUSHROOM_B_WALL;
+      Serial.println("# shape: mushroom");
+      break;
+
+    case 'S':
+    case 's':
+      activeShape = SQUARE_PTS;
+      activeShapeN = SQUARE_N;
+      K_WALL = SQUARE_K_WALL;
+      B_WALL = SQUARE_B_WALL;
+      Serial.println("# shape: square");
       break;
   }
 }

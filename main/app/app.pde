@@ -48,6 +48,8 @@ int lastShapeId = -1;
 PShape baseSVG;
 float[][] points;
 String[] recentGuesses = new String[0];
+int[] shapeQueue = new int[0];   // shuffled queue of upcoming shape ids
+int queueIdx = 0;                // pointer into the queue
 
 // Precomputed arc-length table (sized for max possible):
 float[] s_arc;
@@ -248,10 +250,32 @@ float[][] loadCoordinates(String filename) {
 }
 
 void toggleShape(){
-  // move to next shape in the series
-  // there are three shapes, ids 1, 2, 3
-  if (shapeId == 3) shapeId = 1;
-  else shapeId ++; 
+  // If the queue is empty or exhausted, reshuffle all 6 shapes
+  if (shapeQueue.length == 0 || queueIdx >= shapeQueue.length) {
+    shapeQueue = shuffleShapeIds();
+    queueIdx = 0;
+    // Avoid the first card matching the current shape (no immediate repeat
+    // across a reshuffle). Swap it with another slot if it does.
+    if (shapeQueue[0] == shapeId && shapeQueue.length > 1) {
+      int tmp = shapeQueue[0];
+      shapeQueue[0] = shapeQueue[1];
+      shapeQueue[1] = tmp;
+    }
+  }
+  shapeId = shapeQueue[queueIdx];
+  queueIdx++;
+}
+
+// Fisher-Yates shuffle of shape ids 5..11
+int[] shuffleShapeIds() {
+  int[] arr = {5, 6, 7, 8, 9, 10, 11};
+  for (int i = arr.length - 1; i > 0; i--) {
+    int j = int(random(i + 1));
+    int tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  return arr;
 }
 
 
@@ -267,12 +291,14 @@ void setShape(int id) {
   println("Active shape: " + currentShape.shapeName + " (" + points.length + " pts)");
 
   // Tell Arduino too, if connected.
-  // Tell Arduino too, if connected.
   char cmd = 0;
-  if      (shapeId == 5) cmd = 'F';
-  else if (shapeId == 6) cmd = 'D';
-  else if (shapeId == 7) cmd = 'B';
-  else if (shapeId == 8) cmd = 'E'; // bell had to be 'E' bc we have banana as 'B'
+  if      (shapeId == 5)  cmd = 'F';
+  else if (shapeId == 6)  cmd = 'D';
+  else if (shapeId == 7)  cmd = 'B';
+  else if (shapeId == 8)  cmd = 'E'; // bell had to be 'E' bc we have banana as 'B'
+  else if (shapeId == 9)  cmd = 'H'; // horseshoe
+  else if (shapeId == 10) cmd = 'M'; // mushroom
+  else if (shapeId == 11) cmd = 'S'; // square
 
   if (cmd != 0) {
     for (Serial p : arduinoPorts) p.write(cmd);
