@@ -337,7 +337,7 @@ void setupSerial() {
   }
 
   // Connect to Board 5 ONLY — hardcode the port name
-  String BOARD5_PORT = "/dev/tty.usbserial-A10POSFY";  // ← change this to whatever Board 5 is
+  String BOARD5_PORT = "/dev/cu.usbserial-A10POSFY";  // ← change this to whatever Board 5 is
 
   try {
     Serial board5 = new Serial(this, BOARD5_PORT, 115200);
