@@ -36,17 +36,9 @@ void setup() {
   ORIGIN_Y = height / 2.0f;
   
   // Define zones matching the Arduino parameters from the firmware
-  
-  // Q1 (Top Right): K=100, B=2.0 -> high stiff, high damp
-  zones[0] = new QuadZone(0.03f, 0.07f, 0.13f, 0.17f, "Stiff and Sticky", color(50, 100, 200, 200), 2);
-  
-  // Q2 (Top Left): K=150, B=3.0 -> High stiff, low damp
-  zones[1] = new QuadZone(-0.07f, -0.03f, 0.13f, 0.17f, "Stiff and Slippery", color(50, 100, 200, 200), 0);
-  
-  // Q3 (Bottom Left): K=200, B=4.0 -> low stiff, low damp
-  zones[2] = new QuadZone(-0.07f, -0.03f, 0.03f, 0.07f, "Squishy and Slippery", color(173, 216, 230, 200), 0);
-  
-  // Q4 (Bottom Right): K=50, B=1.0 -> Low Stiff, high damp
+  zones[0] = new QuadZone(0.03f, 0.07f, 0.13f, 0.17f, "Stiff & Sticky", color(50, 100, 200, 200), 2);
+  zones[1] = new QuadZone(-0.07f, -0.03f, 0.13f, 0.17f, "Stiff & Slippery", color(50, 100, 200, 200), 0);
+  zones[2] = new QuadZone(-0.07f, -0.03f, 0.03f, 0.07f, "Squishy & Slippery", color(173, 216, 230, 200), 0);
   zones[3] = new QuadZone(0.03f, 0.07f, 0.03f, 0.07f, "Squishy & Sticky", color(173, 216, 230, 200), 2);
 
   setupSerial();
@@ -58,7 +50,7 @@ void draw() {
   float xh = -(arduinoFx - WORKSPACE_CENTER_X);
   float yh = -(arduinoFy - WORKSPACE_CENTER_Y);
 
-  // drawAxes();
+  drawAxes();
   drawQuadrants();
   drawPenTip(xh, yh);
   drawForceVector(xh, yh);
@@ -67,7 +59,7 @@ void draw() {
   fill(80);
   textAlign(LEFT, TOP);
   textSize(14);
-  text("Haptic texture sampler", 10, 10);
+  text("4-QUADRANT HAPTIC ZONES", 10, 10);
   text("pen: (" + nf(arduinoFx, 1, 4) + ", " + nf(arduinoFy, 1, 4) + ") m", 10, 30);
   text("force: (" + nf(arduinoForceX, 1, 3) + ", " + nf(arduinoForceY, 1, 3) + ") N", 10, 50);
 }
@@ -87,15 +79,16 @@ void drawAxes() {
 }
 
 void drawQuadrants() {
-  strokeWeight(4); // Increased stroke width globally
+  strokeWeight(4); 
   
   for (int i = 0; i < zones.length; i++) {
     QuadZone q = zones[i];
     
-    float xm_min = q.minX - WORKSPACE_CENTER_X;
-    float xm_max = q.maxX - WORKSPACE_CENTER_X;
-    float ym_min = q.minY - WORKSPACE_CENTER_Y;
-    float ym_max = q.maxY - WORKSPACE_CENTER_Y;
+    // Convert to Processing's mirrored coordinate system relative to center
+    float xm_min = -q.maxX; 
+    float xm_max = -q.minX;
+    float ym_min = -(q.maxY - WORKSPACE_CENTER_Y);
+    float ym_max = -(q.minY - WORKSPACE_CENTER_Y);
 
     float px1 = meterToPixelX(xm_min);
     float py1 = meterToPixelY(ym_min);
@@ -123,7 +116,7 @@ void drawQuadrants() {
   }
 }
 
-// Custom function to draw dashed borders robustly without relying on Java2D limits
+// Custom function to draw dashed borders robustly
 void drawStyledRect(float x, float y, float w, float h, int style) {
   if (style == 0) {
     noFill();
@@ -209,10 +202,21 @@ void serialEvent(Serial p) {
   String[] parts = splitTokens(raw, ", \t");
   if (parts.length >= 4) {
     try {
+      float xh = Float.parseFloat(parts[0]);
+      float yh = Float.parseFloat(parts[1]);
+      float fx = Float.parseFloat(parts[2]);
+      float fy = Float.parseFloat(parts[3]);
+      arduinoFx = xh;
+      arduinoFy = yh;
+      arduinoForceX = fx;
+      arduinoForceY = fy;
+    } catch (Exception e) {
+      // Bad packet — ignore silently
+    }
+  } else if (parts.length >= 2) {
+    try {
       arduinoFx = Float.parseFloat(parts[0]);
       arduinoFy = Float.parseFloat(parts[1]);
-      arduinoForceX = Float.parseFloat(parts[2]);
-      arduinoForceY = Float.parseFloat(parts[3]);
     } catch (Exception e) {}
   }
 }

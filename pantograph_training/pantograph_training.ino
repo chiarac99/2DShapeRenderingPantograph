@@ -2,15 +2,17 @@
 // ME327 Team 10 - Pantograph Single-Board Firmware
 // 4-QUADRANT HAPTIC TRAINING MODE
 // ============================================================
+// ARCHITECTURE: only U1 (right Hapkit) runs this firmware.
+// U1 reads BOTH MR sensors via analog pins (its own on A2, the
+// LEFT board's MR sensor jumper-wired into A3), and drives BOTH
+// motors (right motor on M1 channel, left motor on M2 channel).
+// ============================================================
 
 #include <math.h>
 
 // ============================================================
-// QUADRANT & SQUARE CONFIGURATION (Tinker Here)
+// QUADRANT & SQUARE CONFIGURATION
 // ============================================================
-// The workspace center is x = 0.0, y = 0.10. 
-// We define 4 squares. Each is 4cm x 4cm (0.04m).
-
 struct QuadrantZone {
   float minX, maxX;
   float minY, maxY;
@@ -23,6 +25,7 @@ const float low_k = 30;
 const float high_k = 50;
 const float low_b = 0;
 const float high_b = 0.03;
+
 const QuadrantZone QUADRANTS[4] = {
   // Quad 1: Top-Right (x > 0, y > 0.10) -- "Stiff and Sticky"
   { 0.03f, 0.07f,   0.13f, 0.17f,   high_k, high_b},
@@ -42,9 +45,8 @@ const QuadrantZone QUADRANTS[4] = {
 // ============================================================
 float proxy_x = 0.0f;
 float proxy_y = 0.0f;
-
-// Last valid pen-tip position (used when FK fails)
-float xh_persist = 0.0f, yh_persist = 0.0f;
+float Fx_filt = 0.0f;
+float Fy_filt = 0.0f;
 
 struct EncoderState {
   int  rawPos, lastRawPos, lastLastRawPos;
@@ -58,6 +60,8 @@ struct EncoderState {
 EncoderState enc_M1 = {0,0,0,0,0,0,0,0,0,false,0};
 EncoderState enc_M5 = {0,0,0,0,0,0,0,0,0,false,0};
 const int flipThresh = 700;
+
+float xh_persist = 0.0f, yh_persist = 0.0f;
 
 // ============================================================
 // LINK LENGTHS [meters]
@@ -79,7 +83,7 @@ const int PWM_PIN_M1   = 6;  // LEFT motor PWM
 const int DIR_PIN_M1   = 7;  // LEFT motor DIR
 
 // ============================================================
-// ENCODER CALIBRATION
+// ENCODER CALIBRATION (per-sensor)
 // ============================================================
 const float ENC_M_M1 = -0.0222f;
 const float ENC_B_M1 =  0.0f;
@@ -100,23 +104,27 @@ const float TORQUE_TO_DUTY_K = 0.0183f;
 const int   PWM_OUTPUT_CAP   = 153; // 60% of 255
 const float JAC_PERTURB      = 1e-4f;
 const bool  FORCE_OUTPUT_ENABLED = true;
+bool force_killed = false;
 
+// ============================================================
+// FORCE COMPUTATION (AABB 4-Quadrant Logic)
+// ============================================================
 void computeForce(float xh, float yh, float &Fx, float &Fy) {
   Fx = 0.0f;
   Fy = 0.0f;
 
-  // Find quadrant using RAW physical coordinates
+  // Determine which quadrant the pen is currently in
   int qIndex = -1;
-  if (xh >  0.0f && yh >  0.10f) qIndex = 0; 
-  if (xh <= 0.0f && yh >  0.10f) qIndex = 1; 
-  if (xh <= 0.0f && yh <= 0.10f) qIndex = 2; 
-  if (xh >  0.0f && yh <= 0.10f) qIndex = 3; 
+  if (xh >= 0.0f && yh >= 0.10f) qIndex = 0; // Q1
+  if (xh <  0.0f && yh >= 0.10f) qIndex = 1; // Q2
+  if (xh <  0.0f && yh <  0.10f) qIndex = 2; // Q3
+  if (xh >= 0.0f && yh <  0.10f) qIndex = 3; // Q4
 
-  if (qIndex == -1) return;
+  if (qIndex == -1) return; 
 
   QuadrantZone q = QUADRANTS[qIndex];
 
-  // AABB Collision in RAW coordinates
+  // AABB Collision Check: Are we INSIDE the solid square?
   if (xh > q.minX && xh < q.maxX && yh > q.minY && yh < q.maxY) {
     float d_left   = xh - q.minX;
     float d_right  = q.maxX - xh;
@@ -137,6 +145,38 @@ void computeForce(float xh, float yh, float &Fx, float &Fy) {
     proxy_x = xh;
     proxy_y = yh;
   }
+}
+
+// ============================================================
+// ENCODER READING
+// ============================================================
+float readEncoderTheta(int analogPin, EncoderState &s, float enc_m, float enc_b) {
+  s.rawPos        = analogRead(analogPin);
+  s.rawDiff       = s.rawPos - s.lastRawPos;
+  s.lastRawDiff   = s.rawPos - s.lastLastRawPos;
+  s.rawOffset     = abs(s.rawDiff);
+  s.lastRawOffset = abs(s.lastRawDiff);
+  s.lastLastRawPos = s.lastRawPos;
+  s.lastRawPos    = s.rawPos;
+  
+  if ((s.lastRawOffset > flipThresh) && (!s.flipped)) {
+    if (s.lastRawDiff > 0) s.flipNumber--; else s.flipNumber++;
+    if (s.rawOffset > flipThresh) {
+      s.updatedPos = s.rawPos + s.flipNumber * s.rawOffset;
+      s.tempOffset = s.rawOffset;
+    } else {
+      s.updatedPos = s.rawPos + s.flipNumber * s.lastRawOffset;
+      s.tempOffset = s.lastRawOffset;
+    }
+    s.flipped = true;
+  } else {
+    s.updatedPos = s.rawPos + s.flipNumber * s.tempOffset;
+    s.flipped = false;
+  }
+
+  float theta_deg = enc_m * s.updatedPos + enc_b;
+  float theta_rad = theta_deg * (PI / 180.0f);
+  return theta_rad;
 }
 
 // ============================================================
@@ -173,36 +213,6 @@ void getPenTipPosition(float &x, float &y, float theta1, float theta5) {
   }
   x = xh_persist;
   y = yh_persist;
-}
-
-// ============================================================
-// ENCODER READING
-// ============================================================
-float readEncoderTheta(int pin, EncoderState &st, float m, float b) {
-  st.rawPos = analogRead(pin);
-  if (st.rawPos == st.lastRawPos) {
-    return m * st.updatedPos + b; 
-  }
-
-  st.rawDiff = st.rawPos - st.lastRawPos;
-  if (st.rawDiff < -flipThresh) st.flipped = true;
-  if (st.rawDiff > flipThresh)  st.flipped = true;
-
-  if (st.lastRawDiff > 0 && st.rawDiff < -flipThresh) {
-    st.flipNumber++;
-    st.rawOffset = st.flipNumber * 1024;
-  } else if (st.lastRawDiff < 0 && st.rawDiff > flipThresh) {
-    st.flipNumber--;
-    st.rawOffset = st.flipNumber * 1024;
-  }
-
-  st.updatedPos = st.rawPos + st.tempOffset + st.rawOffset;
-
-  st.lastLastRawPos = st.lastRawPos;
-  st.lastRawPos = st.rawPos;
-  st.lastRawDiff = st.rawPos - st.lastLastRawPos;
-
-  return (m * st.updatedPos + b) * PI / 180.0f; 
 }
 
 // ============================================================
@@ -266,62 +276,85 @@ void setup() {
   pinMode(sensorPos_M5, INPUT);
   pinMode(sensorPos_M1, INPUT);
 
-  Serial.println("Pantograph 4-Quadrant Training Mode ready.");
+  Serial.println("Pantograph single-board firmware ready.");
+  Serial.println("4-Quadrant Mode Enabled.");
 }
 
 // ============================================================
 // MAIN LOOP
 // ============================================================
 void loop() {
-  // 1. Read Encoders
+  // 1. Read BOTH encoders locally — synchronous, no comms latency.
   float theta1 = readEncoderTheta(sensorPos_M1, enc_M1, ENC_M_M1, ENC_B_M1);
   float theta5 = readEncoderTheta(sensorPos_M5, enc_M5, ENC_M_M5, ENC_B_M5);
 
-  // 2. Forward Kinematics
+  // 2. Compute pen-tip position from both thetas.
   float xh, yh;
   getPenTipPosition(xh, yh, theta1, theta5);
 
-  // 3. Velocity Filter
-  float vx = (xh - xh_prev) / DT_LOOP;
-  float vy = (yh - yh_prev) / DT_LOOP;
-  vx_filt = 0.1f * vx_filt + 0.9f * vx;
-  vy_filt = 0.1f * vy_filt + 0.9f * vy;
+  // 3. Update velocity 
+  float vx_raw = (xh - xh_prev) / DT_LOOP;
+  float vy_raw = (yh - yh_prev) / DT_LOOP;
+  
+  if (fabsf(vx_raw) > 0.5f) vx_raw = 0.0f;
+  if (fabsf(vy_raw) > 0.5f) vy_raw = 0.0f;
+
+  vx_filt = 0.95f * vx_filt + 0.05f * vx_raw;
+  vy_filt = 0.95f * vy_filt + 0.05f * vy_raw;
   xh_prev = xh;
   yh_prev = yh;
 
-  // 4. Compute Force
+  // 4. Compute Cartesian force.
   float Fx, Fy;
   computeForce(xh, yh, Fx, Fy);
 
-  // 5. Compute Torques/PWM
+  Fx_filt = 0.7f * Fx_filt + 0.3f * Fx;
+  Fy_filt = 0.7f * Fy_filt + 0.3f * Fy;
+
+  // 5. Compute torque + PWM for EACH motor.
   float tau_M1 = 0.0f, duty_M1 = 0.0f;
   float tau_M5 = 0.0f, duty_M5 = 0.0f;
   int  pwm_M1 = 0,    pwm_M5 = 0;
   bool dir_M1 = false, dir_M5 = false;
-  pwm_M1 = computeMotorOutputPWM(Fx, Fy, theta1, theta5, 1, tau_M1, duty_M1, dir_M1);
-  pwm_M5 = computeMotorOutputPWM(Fx, Fy, theta1, theta5, 5, tau_M5, duty_M5, dir_M5);
+  pwm_M1 = computeMotorOutputPWM(Fx_filt, Fy_filt, theta1, theta5, 1, tau_M1, duty_M1, dir_M1);
+  pwm_M5 = computeMotorOutputPWM(Fx_filt, Fy_filt, theta1, theta5, 5, tau_M5, duty_M5, dir_M5);
 
-  // 6. Apply Forces
-  if (FORCE_OUTPUT_ENABLED) {
+  // 6. Apply forces to BOTH motors. 
+  if (FORCE_OUTPUT_ENABLED && !force_killed) {
+    while (Serial.available()) {
+      char c = Serial.read();
+      if (c == 'X' || c == 'x') {
+        force_killed = true;
+        analogWrite(PWM_PIN_M5, 0);
+        analogWrite(PWM_PIN_M1, 0);
+        digitalWrite(DIR_PIN_M5, LOW);
+        digitalWrite(DIR_PIN_M1, LOW);
+        Serial.println("# FORCE OUTPUT KILLED");
+      }
+    }
     digitalWrite(DIR_PIN_M5, dir_M5 ? LOW : HIGH);
     digitalWrite(DIR_PIN_M1, dir_M1 ? LOW : HIGH);
     analogWrite(PWM_PIN_M5, pwm_M5);
     analogWrite(PWM_PIN_M1, pwm_M1);
   } else {
-      analogWrite(PWM_PIN_M5, 0);
-      analogWrite(PWM_PIN_M1, 0);
+    analogWrite(PWM_PIN_M5, 0);
+    analogWrite(PWM_PIN_M1, 0);
   }
-  // 7. Data Output for Processing Gui
+
+  // 7. CSV output for Processing GUI
   static int csvCounter = 0;
   if (++csvCounter >= 5) {
-    Serial.print(xh, 4); Serial.print(',');
-    Serial.print(yh, 4); Serial.print(',');
-    Serial.print(Fx, 3); Serial.print(',');
+    Serial.print(xh, 4);
+    Serial.print(',');
+    Serial.print(yh, 4);
+    Serial.print(',');
+    Serial.print(Fx, 3);
+    Serial.print(',');
     Serial.println(Fy, 3);
     csvCounter = 0;
   }
 
-  // 8. Human-Readable Debug
+  // 8. Human-readable debug
   static int printCounter = 0;
   if (++printCounter >= 500) {
     float theta1_deg = ENC_M_M1 * enc_M1.updatedPos + ENC_B_M1;
@@ -329,6 +362,8 @@ void loop() {
 
     Serial.print("# t1=");     Serial.print(theta1_deg, 1);
     Serial.print("  t5=");     Serial.print(theta5_deg, 1);
+    Serial.print("  vx=");     Serial.print(vx_filt, 4);
+    Serial.print("  vy=");     Serial.print(vy_filt, 4);
     Serial.print("  xh=");     Serial.print(xh, 4);
     Serial.print("  yh=");     Serial.print(yh, 4);
     Serial.print("  Fx=");     Serial.print(Fx, 3);
@@ -340,7 +375,6 @@ void loop() {
     Serial.println();
     printCounter = 0;
   }
-  // delayMicroseconds(1000);
 }
 
 // --------------------------------------------------------------
