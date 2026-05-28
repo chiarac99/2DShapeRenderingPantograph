@@ -19,10 +19,10 @@ struct QuadrantZone {
 };
 
 // Tune K_WALL (Stiffness) and B_WALL (Damping) empirically here:
-const float low_k = 2000;
-const float high_k = 2000;
+const float low_k = 30;
+const float high_k = 50;
 const float low_b = 0;
-const float high_b = 0.05;
+const float high_b = 0.03;
 const QuadrantZone QUADRANTS[4] = {
   // Quad 1: Top-Right (x > 0, y > 0.10) -- "Stiff and Sticky"
   { 0.03f, 0.07f,   0.13f, 0.17f,   high_k, high_b},

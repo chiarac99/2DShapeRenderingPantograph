@@ -55,8 +55,8 @@ void setup() {
 void draw() {
   background(255);
 
-  float xh = (arduinoFx - WORKSPACE_CENTER_X);
-  float yh = (arduinoFy - WORKSPACE_CENTER_Y);
+  float xh = -(arduinoFx - WORKSPACE_CENTER_X);
+  float yh = -(arduinoFy - WORKSPACE_CENTER_Y);
 
   // drawAxes();
   drawQuadrants();
@@ -190,7 +190,7 @@ void drawForceVector(float xh_screen, float yh_screen) {
 // =============================================================
 void setupSerial() {
   if (STANDALONE_MODE) return;
-  String BOARD5_PORT = "/dev/tty.usbserial-A10POSFY"; 
+  String BOARD5_PORT = "/dev/tty.usbserial-A10POSFX"; 
   try {
     Serial board5 = new Serial(this, BOARD5_PORT, 115200);
     arduinoPorts = new Serial[]{ board5 };

@@ -6,12 +6,20 @@ import processing.serial.*;
 boolean STANDALONE_MODE = false;
 Serial[] arduinoPorts = new Serial[0];
 boolean TEST = true; // 0=off, 1=on — draws a test square + pen tip only
-int TEST_SHAPE_ID = 4; // whichever shape ID is the square in your db
 
 // ---------- SERIAL ----------
 Serial arduinoPort = null;
 float arduinoFx = 0, arduinoFy = 0;   // pen tip position from Arduino (named Fx/Fy historically; actually x/y)
 float arduinoForceX = 0, arduinoForceY = 0;   // force from Arduino force model
+
+// ---- Proxy stuff ----
+int   proc_proxy_seg = 0;
+float proc_proxy_t   = 0.0f;
+boolean proc_was_inside = false;
+float proc_proxy_px = 0, proc_proxy_py = 0;
+float pen_px_prev = 0, pen_py_prev = 0;
+
+
 
 // ---------- VELOCITY TRACKING ----------
 float xh_prev = 0, yh_prev = 0;
@@ -44,11 +52,13 @@ float LAMBDA_TEX   = 0.0020f;
 // Data is retrieved from saved csv files.
 
 ShapeRecord currentShape;
-int shapeId= 1; // 1, 2 and 3
+int shapeId= 5; // 1, 2 and 3
 int lastShapeId = -1;
 PShape baseSVG;
 float[][] points;
 String[] recentGuesses = new String[0];
+int[] shapeQueue = new int[0];   // shuffled queue of upcoming shape ids
+int queueIdx = 0;                // pointer into the queue
 
 // Precomputed arc-length table (sized for max possible):
 float[] s_arc;
@@ -137,7 +147,6 @@ void toggleScreen(){
 }
 
 void drawTestMode() {
-  // React to dropdown changing shapeId
   if (shapeId != lastShapeId) {
     lastShapeId = shapeId;
     setShape(shapeId);
@@ -148,9 +157,7 @@ void drawTestMode() {
 
   drawLines();
   drawDots();
-  drawPenTip(xh, yh);
-  drawForceVector(xh, yh);
-
+  drawPenAndProxy(xh, yh);  // replaces drawPenTip + drawForceVector
   shapeDropdown.draw();
 
   fill(80);
@@ -158,9 +165,6 @@ void drawTestMode() {
   textSize(12);
   text("TEST MODE — " + (currentShape != null ? currentShape.shapeName : ""), 10, 10);
   text("pen: (" + nf(arduinoFx, 1, 4) + ", " + nf(arduinoFy, 1, 4) + ") m", 10, 26);
-  text("force: (" + nf(arduinoForceX, 1, 3) + ", " + nf(arduinoForceY, 1, 3) + ") N", 10, 42);
-  float fmag = sqrt(arduinoForceX*arduinoForceX + arduinoForceY*arduinoForceY);
-  text("|F| = " + nf(fmag, 1, 3) + " N", 10, 58);
 }
 
 void drawGuessScreen(){
@@ -238,8 +242,8 @@ float[][] loadCoordinates(String filename) {
       try {
         float rawX = Float.parseFloat(parts[0].trim());
         float rawY = Float.parseFloat(parts[1].trim());
-        pts[idx][0] = meterToPixelX(rawX);
-        pts[idx][1] = meterToPixelY(rawY);
+        pts[idx][0] = width - meterToPixelX(rawX);
+        pts[idx][1] = height - meterToPixelY(rawY);
         idx++;
       } catch (NumberFormatException e) {}
     }
@@ -249,10 +253,32 @@ float[][] loadCoordinates(String filename) {
 }
 
 void toggleShape(){
-  // move to next shape in the series
-  // there are three shapes, ids 1, 2, 3
-  if (shapeId == 3) shapeId = 1;
-  else shapeId ++; 
+  // If the queue is empty or exhausted, reshuffle all 6 shapes
+  if (shapeQueue.length == 0 || queueIdx >= shapeQueue.length) {
+    shapeQueue = shuffleShapeIds();
+    queueIdx = 0;
+    // Avoid the first card matching the current shape (no immediate repeat
+    // across a reshuffle). Swap it with another slot if it does.
+    if (shapeQueue[0] == shapeId && shapeQueue.length > 1) {
+      int tmp = shapeQueue[0];
+      shapeQueue[0] = shapeQueue[1];
+      shapeQueue[1] = tmp;
+    }
+  }
+  shapeId = shapeQueue[queueIdx];
+  queueIdx++;
+}
+
+// Fisher-Yates shuffle of shape ids 5..11
+int[] shuffleShapeIds() {
+  int[] arr = {5, 6, 7, 8, 9, 10, 11};
+  for (int i = arr.length - 1; i > 0; i--) {
+    int j = int(random(i + 1));
+    int tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  return arr;
 }
 
 
@@ -268,11 +294,14 @@ void setShape(int id) {
   println("Active shape: " + currentShape.shapeName + " (" + points.length + " pts)");
 
   // Tell Arduino too, if connected.
-  // Tell Arduino too, if connected.
   char cmd = 0;
-  if      (shapeId == 0) cmd = 'B';
-  else if (shapeId == 1) cmd = 'H';
-  else if (shapeId == 2) cmd = 'P';
+  if      (shapeId == 5)  cmd = 'F';
+  else if (shapeId == 6)  cmd = 'D';
+  else if (shapeId == 7)  cmd = 'B';
+  else if (shapeId == 8)  cmd = 'E'; // bell had to be 'E' bc we have banana as 'B'
+  else if (shapeId == 9)  cmd = 'H'; // horseshoe
+  else if (shapeId == 10) cmd = 'M'; // mushroom
+  else if (shapeId == 11) cmd = 'S'; // square
 
   if (cmd != 0) {
     for (Serial p : arduinoPorts) p.write(cmd);
@@ -311,7 +340,7 @@ void setupSerial() {
   }
 
   // Connect to Board 5 ONLY — hardcode the port name
-  String BOARD5_PORT = "/dev/tty.usbserial-A10POSFY";  // ← change this to whatever Board 5 is
+  String BOARD5_PORT = "/dev/tty.usbserial-A10POSFX"; 
 
   try {
     Serial board5 = new Serial(this, BOARD5_PORT, 115200);
@@ -393,7 +422,7 @@ void drawDots() {
   fill(red(dotColor), green(dotColor), blue(dotColor), dotOpacity);
     noStroke();
     for (int i = 0; i < points.length; i++) {
-      ellipse(-points[i][0], -points[i][1], dotRadius * 2, dotRadius * 2);
+      ellipse(points[i][0], points[i][1], dotRadius * 2, dotRadius * 2);
     }
 }
 
@@ -402,7 +431,7 @@ void drawLines() {
     stroke(red(lineColor), green(lineColor), blue(lineColor), lineOpacity);
     noFill();
     for (int i = 0; i < points.length - 1; i++) {
-      line(-points[i][0], -points[i][1], -points[i+1][0], -points[i+1][1]);
+      line(points[i][0], points[i][1], points[i+1][0], points[i+1][1]);
     }
 }
 
@@ -419,7 +448,172 @@ void setupShapeDropdown() {
   shapeDropdown = new Dropdown(20, 20, 200, 30, names, ids);
   
 }
+// Point-in-polygon test using loaded shape points (pixel coords)
+boolean pointInShape(float px, float py) {
+  if (points == null || points.length < 3) return false;
+  boolean inside = false;
+  for (int i = 0, j = points.length - 1; i < points.length; j = i++) {
+    float xi = points[i][0], yi = points[i][1];
+    float xj = points[j][0], yj = points[j][1];
+    boolean crosses = ((yi > py) != (yj > py)) &&
+                      (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}
 
+// Nearest point on shape boundary (pixel coords)
+float[] nearestOnShape(float px, float py) {
+  float bestD2 = 1e30f;
+  float[] result = {px, py};
+  for (int i = 0; i < points.length - 1; i++) {
+    float ax = points[i][0], ay = points[i][1];
+    float bx = points[i+1][0], by = points[i+1][1];
+    float vx = bx-ax, vy = by-ay;
+    float len2 = vx*vx + vy*vy;
+    if (len2 < 1e-6f) continue;
+    float t = ((px-ax)*vx + (py-ay)*vy) / len2;
+    t = constrain(t, 0, 1);
+    float nx = ax+t*vx, ny = ay+t*vy;
+    float d2 = (px-nx)*(px-nx) + (py-ny)*(py-ny);
+    if (d2 < bestD2) { bestD2 = d2; result[0] = nx; result[1] = ny; }
+  }
+  return result;
+}
+
+//void drawPenAndProxy(float xh_m, float yh_m) {
+//  float penPx = meterToPixelX(xh_m);
+//  float penPy = meterToPixelY(yh_m);
+
+//  if (points != null && points.length > 0 && pointInShape(penPx, penPy)) {
+//    float[] proxy = nearestOnShape(penPx, penPy);
+
+//    // Spring line between pen and proxy
+//    stroke(150, 150, 255, 180);
+//    strokeWeight(1.5f);
+//    line(penPx, penPy, proxy[0], proxy[1]);
+
+//    // Proxy dot on boundary (blue)
+//    noStroke();
+//    fill(50, 100, 255);
+//    ellipse(proxy[0], proxy[1], 10, 10);
+//  }
+
+//  // Pen tip (pink, always on top)
+//  noStroke();
+//  fill(255, 100, 150);
+//  ellipse(penPx, penPy, 12, 12);
+//}
+// Line segment intersection in pixel coords
+// Returns {t_pen, t_seg} or null if no intersection
+float[] segCross(float px, float py, float qx, float qy,
+                 float ax, float ay, float bx, float by) {
+  float dqx = qx-px, dqy = qy-py;
+  float dbx = bx-ax, dby = by-ay;
+  float denom = dqx*dby - dqy*dbx;
+  if (abs(denom) < 1e-6f) return null;
+  float dpx = ax-px, dpy = ay-py;
+  float t_pen = (dpx*dby - dpy*dbx) / denom;
+  float t_seg = (dpx*dqy - dpy*dqx) / denom;
+  if (t_pen >= -0.01f && t_pen <= 1.01f && t_seg >= 0 && t_seg <= 1)
+    return new float[]{t_pen, t_seg};
+  return null;
+}
+
+void updateProcessingProxy(float penPx, float penPy) {
+  boolean inside = pointInShape(penPx, penPy);
+
+  if (!inside) {
+    proc_was_inside = false;
+    // Track nearest segment while outside
+    float bestD2 = 1e30f;
+    for (int i = 0; i < points.length - 1; i++) {
+      float ax = points[i][0], ay = points[i][1];
+      float bx = points[i+1][0], by = points[i+1][1];
+      float vx = bx-ax, vy = by-ay;
+      float len2 = vx*vx + vy*vy;
+      if (len2 < 1e-6f) continue;
+      float t = ((penPx-ax)*vx + (penPy-ay)*vy) / len2;
+      t = constrain(t, 0, 1);
+      float nx = ax+t*vx, ny = ay+t*vy;
+      float d2 = (penPx-nx)*(penPx-nx) + (penPy-ny)*(penPy-ny);
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        proc_proxy_seg = i;
+        proc_proxy_t   = t;
+      }
+    }
+    // Proxy follows pen outside
+    proc_proxy_px = penPx;
+    proc_proxy_py = penPy;
+    return;
+  }
+
+  // Inside
+  if (!proc_was_inside) {
+    // Find crossing segment
+    float bestTPen = 1e30f;
+    for (int i = 0; i < points.length - 1; i++) {
+      float[] hit = segCross(pen_px_prev, pen_py_prev, penPx, penPy,
+                             points[i][0], points[i][1],
+                             points[i+1][0], points[i+1][1]);
+      if (hit != null && hit[0] < bestTPen) {
+        bestTPen = hit[0];
+        proc_proxy_seg = i;
+        proc_proxy_t   = hit[1];
+      }
+    }
+    proc_was_inside = true;
+  }
+
+  // Slide proxy along adjacent segments only
+  float ax = points[proc_proxy_seg][0], ay = points[proc_proxy_seg][1];
+  int nextSeg = (proc_proxy_seg + 1) % (points.length - 1);
+  float bx = points[nextSeg][0], by = points[nextSeg][1];
+  float tx = bx-ax, ty = by-ay;
+  float len2 = tx*tx + ty*ty;
+
+  if (len2 > 1e-6f) {
+    float dx = penPx - proc_proxy_px;
+    float dy = penPy - proc_proxy_py;
+    float delta_t = (dx*tx + dy*ty) / len2;
+    delta_t = constrain(delta_t, -0.5f, 0.5f);
+    float new_t = proc_proxy_t + delta_t;
+
+    if (new_t >= 1.0f) {
+      proc_proxy_seg = nextSeg;
+      proc_proxy_t   = 0.0f;
+    } else if (new_t <= 0.0f) {
+      proc_proxy_seg = (proc_proxy_seg - 1 + (points.length-1)) % (points.length-1);
+      proc_proxy_t   = 1.0f;
+    } else {
+      proc_proxy_t = new_t;
+    }
+  }
+
+  // Compute proxy pixel position
+  ax = points[proc_proxy_seg][0]; ay = points[proc_proxy_seg][1];
+  nextSeg = (proc_proxy_seg + 1) % (points.length - 1);
+  bx = points[nextSeg][0]; by = points[nextSeg][1];
+  proc_proxy_px = ax + proc_proxy_t * (bx - ax);
+  proc_proxy_py = ay + proc_proxy_t * (by - ay);
+}
+
+void drawPenAndProxy(float xh_m, float yh_m) {
+  float penPx = meterToPixelX(xh_m);
+  float penPy = meterToPixelY(yh_m);
+
+  updateProcessingProxy(penPx, penPy);
+
+  // Save for next frame's crossing detection
+  pen_px_prev = penPx;
+  pen_py_prev = penPy;
+
+  // Blue dot = proxy position (on boundary when inside, pen when outside)
+  noStroke();
+  fill(50, 100, 255);
+  ellipse(proc_proxy_px, proc_proxy_py, 14, 14);
+}
 void drawGuessSidebar() {
   int panelX = 650;
   int panelY = 80;
