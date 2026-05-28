@@ -160,8 +160,8 @@ const float DUCK_PTS[DUCK_N][2] PROGMEM = {
     {  0.04302f,  0.02963f},
     { -0.00800f,  0.04611f}
 };
-const float DUCK_K_WALL = 30.0f;
-const float DUCK_B_WALL = 0.0f;
+const float DUCK_K_WALL = 40.0f;
+const float DUCK_B_WALL = 0.02f;
 
 // ----- bell, 20 pts, CCW -----
 const int BELL_N = 20;
