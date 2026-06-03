@@ -5,7 +5,7 @@ import processing.serial.*;
 // ---------- MODE SELECTION ----------
 boolean STANDALONE_MODE = false;
 Serial[] arduinoPorts = new Serial[0];
-boolean TEST = true; // 0=off, 1=on — draws a test square + pen tip only
+boolean TEST = false; // 0=off, 1=on — draws a test square + pen tip only
 
 // ---------- SERIAL ----------
 Serial arduinoPort = null;
@@ -168,6 +168,11 @@ void drawTestMode() {
 }
 
 void drawGuessScreen(){
+  
+  float xh = -(arduinoFx - WORKSPACE_CENTER_X);
+  float yh = -(arduinoFy - WORKSPACE_CENTER_Y);
+  drawPenAndProxy(xh, yh);  // blue dot shows here too
+  
   guessInput.draw();
   submitBtn.draw();
 
@@ -189,7 +194,7 @@ void drawResultsScreen(){
   float yh = -(arduinoFy - WORKSPACE_CENTER_Y);
 
   // draw user
-  drawPenTip(xh, yh);
+  drawPenAndProxy(xh, yh);
 
   // draw shape
   drawLines();
@@ -340,7 +345,7 @@ void setupSerial() {
   }
 
   // Connect to Board 5 ONLY — hardcode the port name
-  String BOARD5_PORT = "com3";  // ← change this to whatever Board 5 is
+  String BOARD5_PORT = "/dev/cu.usbserial-A10POSFY";  // ← change this to whatever Board 5 is
 
   try {
     Serial board5 = new Serial(this, BOARD5_PORT, 115200);
@@ -504,6 +509,7 @@ float[] nearestOnShape(float px, float py) {
 //  fill(255, 100, 150);
 //  ellipse(penPx, penPy, 12, 12);
 //}
+
 // Line segment intersection in pixel coords
 // Returns {t_pen, t_seg} or null if no intersection
 float[] segCross(float px, float py, float qx, float qy,
@@ -614,6 +620,8 @@ void drawPenAndProxy(float xh_m, float yh_m) {
   fill(50, 100, 255);
   ellipse(proc_proxy_px, proc_proxy_py, 14, 14);
 }
+
+
 void drawGuessSidebar() {
   int panelX = 650;
   int panelY = 80;
