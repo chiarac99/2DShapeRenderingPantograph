@@ -1,3 +1,4 @@
+
 // ============================================================
 // ME327 Team 10 - Pantograph Single-Board Firmware
 // ============================================================
@@ -49,6 +50,10 @@ float proxy_x = 0.0f;
 float proxy_y = 0.0f;
 float Fx_filt = 0.0f;
 float Fy_filt = 0.0f;
+int   proxy_seg_idx = 0;
+float proxy_seg_t   = 0.0f;
+
+bool was_inside_shape = false;
 
 // ============================================================
 // LINK LENGTHS [meters] — unchanged from previous firmware
@@ -112,19 +117,6 @@ bool force_killed = false;
 float K_WALL = 30.0f;
 float B_WALL = 0.0f;
 
-// ---- Free-space attraction field (outside the shape) ----
-// Exponential GROWTH toward the shape boundary:  F = a*(e^(d/c) - 1)
-//   - Zero exactly at the boundary (d = 0)
-//   - Concave-up: force steepens as the pen moves farther out
-//   - 'a' is derived so F = ATTRACT_MAX exactly at d = ATTRACT_PT
-//   - Clamped flat at ATTRACT_MAX once d >= ATTRACT_PT
-// Note: with this shape the pull is WEAKEST at the edge and STRONGEST at p_T.
-bool  ATTRACT_ON     = true;     // master on/off for the free-space field
-float ATTRACT_D0     = 0.010f;   // dead zone, meters: F = 0 for d < D0 (10 mm); growth starts here
-float ATTRACT_PT     = 0.050f;   // p_T: distance where F reaches ATTRACT_MAX, meters (50 mm)
-float ATTRACT_C      = 0.005f;   // growth constant, meters — smaller = more dramatic curl
-float ATTRACT_MAX    = 0.5f;     // force magnitude at p_T, newtons (tune to taste)
-
 // ============================================================
 // MOTOR DRIVE CONSTANTS (unchanged)
 // ============================================================
@@ -160,8 +152,8 @@ const float DUCK_PTS[DUCK_N][2] PROGMEM = {
     {  0.04302f,  0.02963f},
     { -0.00800f,  0.04611f}
 };
-const float DUCK_K_WALL = 40.0f;
-const float DUCK_B_WALL = 0.02f;
+const float DUCK_K_WALL = 50.0f;
+const float DUCK_B_WALL = 0.03f;
 
 // ----- bell, 20 pts, CCW -----
 const int BELL_N = 20;
@@ -214,7 +206,7 @@ const float BANANA_PTS[BANANA_N][2] PROGMEM = {
     { -0.04389f, -0.03340f},
     { -0.04365f, -0.03519f}
 };
-const float BANANA_K_WALL = 40.0f;
+const float BANANA_K_WALL = 30.0f;
 const float BANANA_B_WALL = 0.03f;
 
 // ----- fish, 20 pts, CCW -----
@@ -554,64 +546,188 @@ bool pointInPolygon(float px, float py) {
 //   Fx = K_WALL * (proxy_x - xh) - B_WALL * vx_filt;
 //   Fy = K_WALL * (proxy_y - yh) - B_WALL * vy_filt;
 // }
+
+// void computeForce(float xh, float yh, float &Fx, float &Fy) {
+//   if (!pointInPolygon(xh, yh)) {
+//     proxy_x = xh;
+//     proxy_y = yh;
+//     Fx = 0.0f;
+//     Fy = 0.0f;
+//     return;
+//   }
+
+//   // Move proxy ALL THE WAY toward pen in one step
+//   // but project back to boundary if it crosses
+//   float nx, ny;
+//   findNearestPointOnPolygon(xh, yh, nx, ny);
+//   proxy_x = nx;
+//   proxy_y = ny;
+
+//   // Now compute blended force from proxy position
+//   float nx1, ny1, d2_1, nx2, ny2, d2_2;
+//   findTwoNearestOnPolygon(xh, yh, nx1, ny1, d2_1, nx2, ny2, d2_2);
+
+//   float F1x = K_WALL * (nx1 - xh);
+//   float F1y = K_WALL * (ny1 - yh);
+//   float F2x = K_WALL * (nx2 - xh);
+//   float F2y = K_WALL * (ny2 - yh);
+
+//   const float EPS = 1e-9f;
+//   float w1 = 1.0f / (d2_1 + EPS);
+//   float w2 = 1.0f / (d2_2 + EPS);
+//   float wsum = w1 + w2;
+
+//   // Spring force + damping opposing motion
+//   Fx = (w1 * F1x + w2 * F2x) / wsum - B_WALL * vx_filt;
+//   Fy = (w1 * F1y + w2 * F2y) / wsum - B_WALL * vy_filt;
+// }
+
 // ============================================================
 // PROXY + ROUNDED CORNERS
 // ============================================================
-void computeForce(float xh, float yh, float &Fx, float &Fy) {
-  if (!pointInPolygon(xh, yh)) {
-    // OUTSIDE the shape = free space.
-    // Optional exponential attraction toward the nearest boundary point:
-    //   F = 0 exactly at the boundary, growing with distance, saturating at ATTRACT_MAX.
-    if (!ATTRACT_ON) { Fx = 0.0f; Fy = 0.0f; return; }
+// void computeForce(float xh, float yh, float &Fx, float &Fy) {
+//   if (!pointInPolygon(xh, yh)) {
+//     Fx = 0.0f;
+//     Fy = 0.0f;
+//     return;
+//   }
 
-    float nx1, ny1, d2_1, nx2, ny2, d2_2;
-    findTwoNearestOnPolygon(xh, yh, nx1, ny1, d2_1, nx2, ny2, d2_2);
+//   // Just find nearest two points and blend — no proxy sliding
+//   float nx1, ny1, d2_1, nx2, ny2, d2_2;
+//   findTwoNearestOnPolygon(xh, yh, nx1, ny1, d2_1, nx2, ny2, d2_2);
 
-    float d = sqrtf(d2_1);                 // distance to nearest boundary point
-    if (d < 1e-6f) { Fx = 0.0f; Fy = 0.0f; return; }  // basically on the edge
+//   float F1x = K_WALL * (nx1 - xh);
+//   float F1y = K_WALL * (ny1 - yh);
+//   float F2x = K_WALL * (nx2 - xh);
+//   float F2y = K_WALL * (ny2 - yh);
 
-    // Force magnitude: three regions
-    //   d < ATTRACT_D0           : F = 0  (dead zone hugging the edge)
-    //   ATTRACT_D0 <= d < ATTRACT_PT : exponential growth from the dead-zone edge
-    //   d >= ATTRACT_PT          : F = ATTRACT_MAX (flat)
-    // Growth is measured from D0:  F = a*(e^((d-D0)/c) - 1),
-    // with a chosen so F = ATTRACT_MAX exactly at d = ATTRACT_PT.
-    float mag;
-    if (d < ATTRACT_D0) {
-      mag = 0.0f;                          // dead zone — no force near the edge
-    } else if (d >= ATTRACT_PT) {
-      mag = ATTRACT_MAX;                   // flat full attraction past p_T
-    } else {
-      float a = ATTRACT_MAX / (expf((ATTRACT_PT - ATTRACT_D0) / ATTRACT_C) - 1.0f);
-      mag = a * (expf((d - ATTRACT_D0) / ATTRACT_C) - 1.0f);
+//   const float EPS = 1e-9f;
+//   float w1 = 1.0f / (d2_1 + EPS);
+//   float w2 = 1.0f / (d2_2 + EPS);
+//   float wsum = w1 + w2;
+
+//   Fx = (w1 * F1x + w2 * F2x) / wsum;
+//   Fy = (w1 * F1y + w2 * F2y) / wsum;
+  
+// }
+
+// ============================================================
+// TRADITIONAL PROXY
+// ============================================================
+// Line segment intersection helper
+// Returns true if pen path (P→Q) crosses polygon segment (A→B)
+// t_pen = how far along pen path [0,1], t_seg = where on polygon segment [0,1]
+
+bool segmentCross(float px, float py, float qx, float qy,
+                  float ax, float ay, float bx, float by,
+                  float &t_pen, float &t_seg) {
+  float dqx = qx-px, dqy = qy-py;
+  float dbx = bx-ax, dby = by-ay;
+  float denom = dqx*dby - dqy*dbx;
+  if (fabsf(denom) < 1e-10f) return false;
+  float dpx = ax-px, dpy = ay-py;
+  t_pen = (dpx*dby - dpy*dbx) / denom;
+  t_seg = (dpx*dqy - dpy*dqx) / denom;
+  return (t_pen >= -0.01f && t_pen <= 1.01f &&
+          t_seg >=  0.0f  && t_seg <= 1.0f);
+}
+
+void proxyGetPos(int seg, float t, float &px, float &py) {
+  int j = (seg + 1) % activeShapeN;
+  px = shapeX(seg) + t * (shapeX(j) - shapeX(seg));
+  py = shapeY(seg) + t * (shapeY(j) - shapeY(seg));
+}
+
+  void computeForce(float xh, float yh, float &Fx, float &Fy) {
+  bool currently_inside = pointInPolygon(xh, yh);
+
+  if (!currently_inside) {
+    was_inside_shape = false;
+
+    // Track nearest segment so we know where pen will re-enter
+    float best_d2 = 1e30f;
+    for (int i = 0; i < activeShapeN; i++) {
+      int j = (i + 1) % activeShapeN;
+      float ax = shapeX(i), ay = shapeY(i);
+      float bx = shapeX(j), by = shapeY(j);
+      float vx = bx-ax, vy = by-ay;
+      float len2 = vx*vx + vy*vy;
+      if (len2 < 1e-12f) continue;
+      float t = ((xh-ax)*vx + (yh-ay)*vy) / len2;
+      t = constrain(t, 0.0f, 1.0f);
+      float nx = ax+t*vx, ny = ay+t*vy;
+      float d2 = (xh-nx)*(xh-nx) + (yh-ny)*(yh-ny);
+      if (d2 < best_d2) {
+        best_d2 = d2;
+        proxy_seg_idx = i;
+        proxy_seg_t   = t;
+      }
     }
-
-    // Direction: unit vector from pen toward the nearest boundary point (pull inward)
-    float ux = (nx1 - xh) / d;
-    float uy = (ny1 - yh) / d;
-
-    Fx = mag * ux;
-    Fy = mag * uy;
+    proxyGetPos(proxy_seg_idx, proxy_seg_t, proxy_x, proxy_y);
+    Fx = 0.0f;
+    Fy = 0.0f;
     return;
   }
 
-  // INSIDE the shape: existing blended two-edge spring (unchanged).
-  float nx1, ny1, d2_1, nx2, ny2, d2_2;
-  findTwoNearestOnPolygon(xh, yh, nx1, ny1, d2_1, nx2, ny2, d2_2);
+  // Currently inside
+  if (!was_inside_shape) {
+    // Just entered — find the crossing segment by intersecting
+    // pen's movement path (xh_prev→xh) with each polygon segment.
+    // Place proxy exactly at the crossing point, no jumping.
+    float best_t_pen = 1e30f;
+    for (int i = 0; i < activeShapeN; i++) {
+      int j = (i + 1) % activeShapeN;
+      float t_pen, t_seg;
+      if (segmentCross(xh_prev, yh_prev, xh, yh,
+                       shapeX(i), shapeY(i),
+                       shapeX(j), shapeY(j),
+                       t_pen, t_seg)) {
+        if (t_pen < best_t_pen) {
+          best_t_pen  = t_pen;
+          proxy_seg_idx = i;
+          proxy_seg_t   = t_seg;
+        }
+      }
+    }
+    // If no crossing found (fast motion missed it), use previously
+    // tracked nearest segment — already set while outside
+    proxyGetPos(proxy_seg_idx, proxy_seg_t, proxy_x, proxy_y);
+    was_inside_shape = true;
+  }
 
-  float F1x = K_WALL * (nx1 - xh);
-  float F1y = K_WALL * (ny1 - yh);
-  float F2x = K_WALL * (nx2 - xh);
-  float F2y = K_WALL * (ny2 - yh);
+  // Slide proxy along boundary — ADJACENT segments only, never teleport
+  float dx = xh - proxy_x;
+  float dy = yh - proxy_y;
 
-  const float EPS = 1e-9f;
-  float w1 = 1.0f / (d2_1 + EPS);
-  float w2 = 1.0f / (d2_2 + EPS);
-  float wsum = w1 + w2;
+  int j = (proxy_seg_idx + 1) % activeShapeN;
+  float ax = shapeX(proxy_seg_idx), ay = shapeY(proxy_seg_idx);
+  float bx = shapeX(j),             by = shapeY(j);
+  float tx = bx-ax, ty = by-ay;
+  float seg_len2 = tx*tx + ty*ty;
 
-  Fx = (w1 * F1x + w2 * F2x) / wsum;
-  Fy = (w1 * F1y + w2 * F2y) / wsum;
-  
+  if (seg_len2 > 1e-12f) {
+    float delta_t = (dx*tx + dy*ty) / seg_len2;
+    // Cap per-loop movement to prevent skipping segments
+    delta_t = constrain(delta_t, -0.5f, 0.5f);
+    float new_t = proxy_seg_t + delta_t;
+
+    if (new_t >= 1.0f) {
+      // Step to next adjacent segment
+      proxy_seg_idx = (proxy_seg_idx + 1) % activeShapeN;
+      proxy_seg_t   = 0.0f;
+    } else if (new_t <= 0.0f) {
+      // Step to previous adjacent segment
+      proxy_seg_idx = (proxy_seg_idx - 1 + activeShapeN) % activeShapeN;
+      proxy_seg_t   = 1.0f;
+    } else {
+      proxy_seg_t = new_t;
+    }
+  }
+
+  proxyGetPos(proxy_seg_idx, proxy_seg_t, proxy_x, proxy_y);
+
+  Fx = K_WALL * (proxy_x - xh);
+  Fy = K_WALL * (proxy_y - yh);
 }
 
 
@@ -782,39 +898,28 @@ void setup() {
 // MAIN LOOP
 // ============================================================
 void loop() {
-  // 1. Read BOTH encoders locally — synchronous, no comms latency.
   float theta1 = readEncoderTheta(sensorPos_M1, enc_M1, ENC_M_M1, ENC_B_M1);
   float theta5 = readEncoderTheta(sensorPos_M5, enc_M5, ENC_M_M5, ENC_B_M5);
 
-  // 2. Compute pen-tip position from both thetas.
   float xh, yh;
   getPenTipPosition(xh, yh, theta1, theta5);
 
-  // 3. Update velocity 
-
-  // //old
-  // float vx = (xh - xh_prev) / DT_LOOP;
-  // float vy = (yh - yh_prev) / DT_LOOP;
-  // vx_filt = 0.95f * vx_filt + 0.05f * vx;
-  // vy_filt = 0.95f * vy_filt + 0.05f * vy;
-  // xh_prev = xh;
-  // yh_prev = yh;
-
+  // Velocity — compute but DON'T update xh_prev yet
   float vx_raw = (xh - xh_prev) / DT_LOOP;
   float vy_raw = (yh - yh_prev) / DT_LOOP;
-
-  // Reject obvious noise spikes before filtering
   if (fabsf(vx_raw) > 0.5f) vx_raw = 0.0f;
   if (fabsf(vy_raw) > 0.5f) vy_raw = 0.0f;
-
   vx_filt = 0.95f * vx_filt + 0.05f * vx_raw;
   vy_filt = 0.95f * vy_filt + 0.05f * vy_raw;
+
+  // computeForce uses xh_prev/yh_prev = last frame's position
+  float Fx, Fy;
+  computeForce(xh, yh, Fx, Fy);
+
+  // NOW update prev position
   xh_prev = xh;
   yh_prev = yh;
 
-  // 3. Compute Cartesian force.
-  float Fx, Fy;
-  computeForce(xh, yh, Fx, Fy);
 
   // Filter force to smooth out jitter
   Fx_filt = 0.7f * Fx_filt + 0.3f * Fx;
