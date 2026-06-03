@@ -726,8 +726,8 @@ void proxyGetPos(int seg, float t, float &px, float &py) {
 
   proxyGetPos(proxy_seg_idx, proxy_seg_t, proxy_x, proxy_y);
 
-  Fx = K_WALL * (proxy_x - xh);
-  Fy = K_WALL * (proxy_y - yh);
+  Fx = K_WALL * (proxy_x - xh) - B_WALL * vx_filt;
+  Fy = K_WALL * (proxy_y - yh) - B_WALL * vy_filt;
 }
 
 
